@@ -1,0 +1,31 @@
+[package]
+name = "containr"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Media containers: MP4/MOV demux with raw edit lists"
+license = "Apache-2.0"
+repository = "https://github.com/ml-rust/containr"
+readme = "README.md"
+keywords = ["mp4", "mov", "quicktime", "demux", "container"]
+categories = ["multimedia::video", "multimedia::audio", "multimedia::encoding"]
+exclude = ["/tests/fixtures/mp4/", "/.github/", "/scripts/"]
+
+[features]
+default = []
+# MP4 and QuickTime MOV demux.
+mp4 = ["dep:mp4-atom"]
+# Matroska and WebM. Roadmap: the feature compiles nothing yet.
+mkv = []
+
+[dependencies]
+# Pinned: the demuxer decodes boxes through this crate's public types, and a
+# minor release can change them.
+mp4-atom = { version = "=0.17.0", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[test]]
+name = "mp4_demux"
+required-features = ["mp4"]

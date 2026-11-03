@@ -1,0 +1,22 @@
+# Rust build artifacts
+/target/
+/target-*/
+
+# Local cargo overrides
+.cargo/*
+!.cargo/config.toml.example
+
+# Agent session state
+.claude/
+.claude/prep/
+
+# Generated test fixtures: run tests/fixtures/gen_mp4.py to rebuild them.
+/tests/fixtures/mp4/
+
+# Media never enters the repository.
+*.mp4
+*.m4a
+*.m4v
+*.mov
+*.mkv
+*.webm
