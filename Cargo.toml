@@ -3,7 +3,7 @@ name = "containr"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-description = "Media containers: MP4/MOV and Matroska/WebM demux with integer timestamps and raw edit lists"
+description = "Media containers: MP4/MOV mux and demux, Matroska/WebM demux, with integer timestamps and raw edit lists"
 license = "Apache-2.0"
 repository = "https://github.com/ml-rust/containr"
 readme = "README.md"
@@ -13,7 +13,7 @@ exclude = ["/tests/fixtures/mp4/", "/tests/fixtures/mkv/", "/.github/", "/script
 
 [features]
 default = []
-# MP4 and QuickTime MOV demux.
+# MP4 and QuickTime MOV demux and mux.
 mp4 = ["dep:mp4-atom"]
 # Matroska and WebM demux. The EBML reader is containr's own.
 mkv = []
@@ -33,3 +33,7 @@ required-features = ["mp4"]
 [[test]]
 name = "mkv_demux"
 required-features = ["mkv"]
+
+[[test]]
+name = "mp4_mux"
+required-features = ["mp4", "mkv"]

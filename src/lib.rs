@@ -1,8 +1,8 @@
 //! Media containers: boxes, EBML elements, sample tables, packets with
 //! timestamps, track metadata and raw edit lists.
 //!
-//! Each container is a Cargo feature. `mp4` reads MP4 and QuickTime MOV.
-//! `mkv` reads Matroska and WebM.
+//! Each container is a Cargo feature. `mp4` reads and writes MP4 and
+//! QuickTime MOV. `mkv` reads Matroska and WebM.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

@@ -5,7 +5,7 @@
 <h3>Media containers for Rust. Nothing is decoded.</h3>
 
 <p>
-containr reads MP4/MOV and Matroska/WebM containers: boxes and EBML elements, sample tables and blocks, packets with integer timestamps, track metadata, chapters, attachments, and raw edit lists. Muxing is a roadmap item. It never decodes or encodes media. <a href="https://github.com/ml-rust/vidr">vidr</a> (video) and <a href="https://github.com/ml-rust/voxr">voxr</a> (audio) build on it.
+containr reads MP4/MOV and Matroska/WebM containers: boxes and EBML elements, sample tables and blocks, packets with integer timestamps, track metadata, chapters, attachments, and raw edit lists. It writes MP4/MOV with stream copy. Matroska/WebM muxing is a roadmap item. It never decodes or encodes media. <a href="https://github.com/ml-rust/vidr">vidr</a> (video) and <a href="https://github.com/ml-rust/voxr">voxr</a> (audio) build on it.
 </p>
 
 <p>
@@ -46,10 +46,11 @@ In development. No release exists yet.
 | -------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | MP4/MOV demux (`mp4`): tracks, sample tables, packets, raw edit lists, `udta`/`meta` metadata, `chpl` and chapter-track chapters | Implemented |
 | Fragmented MP4 (`moof`) demux                                                                                                    | Roadmap     |
-| MP4/MOV mux                                                                                                                      | Roadmap     |
+| MP4/MOV mux (`mp4`): faststart, interleaved chunks, `co64`, edit lists, metadata, chapters, stream copy from MP4 and Matroska     | Implemented |
 | MKV/WebM demux (`mkv`): tracks, Clusters of known and unknown size, laced blocks, `Cues`, `Chapters`, `Tags`, `Attachments`      | Implemented |
 | MKV/WebM mux                                                                                                                     | Roadmap     |
-| Stream copy                                                                                                                      | Roadmap     |
+| Stream copy into MP4/MOV (`mp4`), from MP4 and from Matroska H.264, HEVC, AV1, AAC, Opus and `S_TEXT/UTF8` tracks                | Implemented |
+| Stream copy into MKV/WebM                                                                                                        | Roadmap     |
 
 ## Features
 
@@ -57,7 +58,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 
 | Feature | What it adds                                                        |
 | ------- | ------------------------------------------------------------------- |
-| `mp4`   | `containr::mp4::Demuxer` for MP4 and QuickTime MOV                  |
+| `mp4`   | `containr::mp4::Demuxer` and `Muxer` for MP4 and QuickTime MOV      |
 | `mkv`   | `containr::mkv::Demuxer` for Matroska and WebM                      |
 
 ## MP4/MOV demux
@@ -72,6 +73,18 @@ Each container is a Cargo feature. The default build holds the shared types only
 - Metadata: `udta` children and `meta/ilst` items, raw. Chapters come from `chpl` and from QuickTime chapter tracks.
 - Fragmented MP4 is refused with `Error::Fragmented`.
 - Malformed input returns an error that names the box path. Every size from the file is checked before allocation.
+
+## MP4/MOV mux
+
+- `Muxer::new`, `add_track`, `set_metadata`, `set_chapters`, `write_packet`, `finish`. The target implements `Write` and `Seek`, and `Read` for `finish`, since faststart reads `mdat` back.
+- `TrackSpec` carries the sample entry as raw stream-copy bytes, or a build from `avcC`, `hvcC`, `av1C`, `esds`, or `dOps`, plus timescale, language, matrix, `pasp`, and an edit list.
+- `TrackSpec::copy_from` builds a spec from an MP4 track, or from a Matroska H.264, HEVC, AV1, AAC, Opus or `S_TEXT/UTF8` track. `StreamCopy::plan` adds packet timing and, for Matroska, the decode times and edit list MP4 needs.
+- Layout: `ftyp`, `mdat`, `moov`. `MuxOptions::faststart` moves `moov` to the front in place, in a second pass on the same target, and adds the shift to every chunk offset.
+- Chunks last at most `MuxOptions::chunk_duration_ms` and interleave across tracks by decode time. `MuxOptions::max_buffer` bounds the bytes held back.
+- Sample tables: `stts`, `ctts` (version 1 with `cslg` for a negative offset), `stsc`, `stsz`, `stss`, and `stco`, or `co64` past 4 GiB. The last sample's duration comes from its packet, so the track's total duration is exact.
+- Refused, each by name: a codec MP4 cannot hold (the error names Matroska), `dts` out of order, a composition offset `ctts` cannot store, a second sample description, a last packet with no duration and no default.
+- Composition offsets range from -2^31 to 2^31 - 1, since readers treat `ctts` offsets as signed.
+- Known limits: stream copy drops MP4 `sgpd` and `sbgp` sample-group boxes. Matroska attachments have no MP4 form, so the muxer never sees them. A caller that copies a Matroska file to MP4 must check `Demuxer::attachments()` and refuse the copy, naming MKV as the container that holds attachments.
 
 ## MKV/WebM demux
 

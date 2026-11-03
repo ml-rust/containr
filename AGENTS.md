@@ -30,10 +30,11 @@ This table is the single source of truth on what works. NEVER describe a roadmap
 | Crate, CI, release workflows | Implemented |
 | MP4/MOV demux (`mp4`): tracks, sample tables, packets, raw edit lists, `udta`/`meta` metadata, `chpl` and chapter-track chapters | Implemented |
 | Fragmented MP4 (`moof`) demux | Roadmap |
-| MP4/MOV mux | Roadmap |
+| MP4/MOV mux (`mp4`): `ftyp`, `mdat`, `moov`, faststart, chunk interleave, `stts`, `ctts`, `cslg`, `stsc`, `stsz`, `stco`/`co64`, `stss`, edit lists, `udta`/`meta`/`keys` metadata, `chpl` and chapter-track chapters, named refusals | Implemented |
 | MKV/WebM demux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters of known and unknown size, `SimpleBlock` and `BlockGroup`, Xiph, EBML and fixed lacing, `Cues`, `Chapters`, `Tags`, `Attachments` | Implemented |
 | MKV/WebM mux | Roadmap |
-| Stream copy | Roadmap |
+| Stream copy into MP4/MOV (`mp4`): `TrackSpec::copy_from` and `StreamCopy`, from MP4 tracks, and from Matroska H.264, HEVC, AV1, AAC, Opus and `S_TEXT/UTF8` tracks | Implemented |
+| Stream copy into MKV/WebM | Roadmap |
 
 Update this table in the same change that implements a capability.
 

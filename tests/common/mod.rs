@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 
 pub mod mkv_synth;
+#[cfg(feature = "mp4")]
+pub mod mp4_probe;
 pub mod synth;
 
 use std::path::PathBuf;

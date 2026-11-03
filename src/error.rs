@@ -135,6 +135,76 @@ pub enum Error {
         /// The error.
         source: Box<Error>,
     },
+    /// A muxer refuses a stream, codec or item the output container cannot
+    /// hold.
+    Unsupported {
+        /// The output container.
+        container: Container,
+        /// What the output cannot hold, such as ``codec `S_TEXT/ASS` ``.
+        what: String,
+        /// The container that holds it.
+        use_instead: Container,
+    },
+    /// A packet's decode timestamp is not above the previous packet's.
+    DtsOutOfOrder {
+        /// The output track id.
+        track_id: u32,
+        /// The 0-based index of the packet in the track.
+        index: u64,
+        /// The packet's decode timestamp.
+        dts: i64,
+        /// The previous packet's decode timestamp.
+        previous: i64,
+    },
+    /// `pts - dts` fits no composition offset the output can store. Readers
+    /// treat `ctts` offsets as signed, so the range is -2^31 to 2^31 - 1.
+    CompositionOffset {
+        /// The output track id.
+        track_id: u32,
+        /// The 0-based index of the packet in the track.
+        index: u64,
+        /// The packet's presentation timestamp.
+        pts: i64,
+        /// The packet's decode timestamp.
+        dts: i64,
+        /// Why the offset does not fit.
+        reason: String,
+    },
+    /// A track needs more than one sample description, as after a
+    /// parameter-set change. The muxer writes one per track.
+    SampleDescriptionChange {
+        /// The track id.
+        track_id: u32,
+        /// The number of sample descriptions the track needs.
+        descriptions: u64,
+    },
+    /// The last packet of a track has no duration, and the track has no
+    /// default duration.
+    MissingDuration {
+        /// The output track id.
+        track_id: u32,
+        /// The 0-based index of the packet in the track.
+        index: u64,
+    },
+    /// A packet breaks a muxer rule other than the named ones.
+    InvalidPacket {
+        /// The output container.
+        container: Container,
+        /// The output track id.
+        track_id: u32,
+        /// The 0-based index of the packet in the track.
+        index: u64,
+        /// The rule the packet breaks.
+        reason: String,
+    },
+    /// A muxer call is invalid: an option, a track spec, a metadata item, a
+    /// chapter, or the call order.
+    InvalidMux {
+        /// The output container.
+        container: Container,
+        /// What is invalid, and the accepted values.
+        reason: String,
+    },
 }
 
 // The constructors serve the container features. A build with none of them
@@ -329,6 +399,71 @@ impl fmt::Display for Error {
                  is truncated. Supply the complete file"
             ),
             Self::InFile { file, source } => write!(f, "{}: {source}", file.display()),
+            Self::Unsupported {
+                container,
+                what,
+                use_instead,
+            } => write!(
+                f,
+                "{} output cannot hold {what}. Mux it into {} instead",
+                container.name(),
+                use_instead.name()
+            ),
+            Self::DtsOutOfOrder {
+                track_id,
+                index,
+                dts,
+                previous,
+            } => write!(
+                f,
+                "packet {index} of track {track_id} has dts {dts}, not above the \
+                 previous dts {previous}. Send the packets of each track in decode \
+                 order, with increasing dts"
+            ),
+            Self::CompositionOffset {
+                track_id,
+                index,
+                pts,
+                dts,
+                reason,
+            } => write!(
+                f,
+                "packet {index} of track {track_id} has pts {pts} and dts {dts}: \
+                 {reason}"
+            ),
+            Self::SampleDescriptionChange {
+                track_id,
+                descriptions,
+            } => write!(
+                f,
+                "track {track_id} needs {descriptions} sample descriptions, as after \
+                 a parameter-set change. The muxer writes one per track. Split the \
+                 stream at the change, or re-encode it with one configuration"
+            ),
+            Self::MissingDuration { track_id, index } => write!(
+                f,
+                "packet {index} of track {track_id} is the last of its track and has \
+                 no duration, and the track spec has no default duration. Set \
+                 `PacketIn::duration` on the last packet, or \
+                 `TrackSpec::default_duration`"
+            ),
+            Self::InvalidPacket {
+                container,
+                track_id,
+                index,
+                reason,
+            } => write!(
+                f,
+                "packet {index} of track {track_id} is invalid for {} output: {reason}",
+                container.name()
+            ),
+            Self::InvalidMux { container, reason } => {
+                write!(
+                    f,
+                    "the {} muxer refuses the call: {reason}",
+                    container.name()
+                )
+            }
         }
     }
 }
