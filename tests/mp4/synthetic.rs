@@ -29,9 +29,12 @@ fn synthetic_tracks_carry_their_header_facts() {
 
         let video = demuxer.track(VIDEO_ID).expect("track 1 exists");
         assert_eq!(video.kind, TrackKind::Video);
-        assert_eq!(video.handler, FourCc(*b"vide"));
-        assert_eq!(video.timescale, synth::VIDEO_TIMESCALE);
-        assert_eq!(video.duration, 600);
+        assert_eq!(video.handler, Some(FourCc(*b"vide")));
+        assert_eq!(
+            video.timebase,
+            containr::Timebase::from_timescale(synth::VIDEO_TIMESCALE)
+        );
+        assert_eq!(video.duration, Some(600));
         assert_eq!(video.language.iso639(), Some("und"));
         assert_eq!(video.codec(), Some(FourCc(*b"avc1")));
         assert_eq!(
@@ -94,7 +97,11 @@ fn synthetic_edit_list_stays_raw() {
         .next()
         .expect("track 1 has samples")
         .expect("the sample decodes");
-    assert_eq!(first.dts, 0, "the demuxer must not apply the edit list");
+    assert_eq!(
+        first.dts,
+        Some(0),
+        "the demuxer must not apply the edit list"
+    );
 }
 
 #[test]
@@ -194,7 +201,7 @@ fn synthetic_missing_moov_is_named() {
     let moov = crate::common::moov_range(&bytes);
     let truncated = bytes[..moov.start].to_vec();
     match Demuxer::open(Cursor::new(truncated)) {
-        Err(Error::MissingBox { path }) => assert_eq!(path, "moov"),
+        Err(Error::MissingBox { path, .. }) => assert_eq!(path, "moov"),
         other => panic!("expected MissingBox, got {:?}", other.map(|_| ())),
     }
 }

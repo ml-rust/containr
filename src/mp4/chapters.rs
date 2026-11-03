@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::metadata::{Chapter, ChapterSource};
-use crate::mp4::demuxer::read_range;
 use crate::mp4::tables::{SampleCursor, SampleTables};
+use crate::read::read_range;
 use crate::track::Track;
 
 /// The largest chapter text sample read, in bytes.
@@ -26,7 +26,7 @@ pub(crate) fn read_chapter_track<R: Read + Seek>(
     tables: &Arc<SampleTables>,
 ) -> Result<Vec<Chapter>> {
     if track.sample_count > MAX_CHAPTERS {
-        return Err(Error::too_large(
+        return Err(Error::mp4_too_large(
             format!("{}/stsz", tables.path),
             track.sample_count,
             MAX_CHAPTERS,
@@ -37,7 +37,7 @@ pub(crate) fn read_chapter_track<R: Read + Seek>(
     let mut buf = Vec::new();
     while let Some(packet) = cursor.next_packet()? {
         if packet.size > MAX_CHAPTER_SAMPLE {
-            return Err(Error::too_large(
+            return Err(Error::mp4_too_large(
                 format!("{} sample {}", tables.path, packet.index),
                 u64::from(packet.size),
                 u64::from(MAX_CHAPTER_SAMPLE),
@@ -45,7 +45,7 @@ pub(crate) fn read_chapter_track<R: Read + Seek>(
         }
         read_range(reader, input_len, &packet, &mut buf)?;
         let start = u64::try_from(packet.pts).map_err(|_| {
-            Error::inconsistent(
+            Error::mp4_inconsistent(
                 format!("{}/ctts", tables.path),
                 format!(
                     "chapter sample {} presents at {}, before 0",
@@ -55,8 +55,8 @@ pub(crate) fn read_chapter_track<R: Read + Seek>(
         })?;
         chapters.push(Chapter {
             start,
-            duration: Some(u64::from(packet.duration)),
-            timescale: track.timescale,
+            duration: packet.duration,
+            timescale: track.timebase.den,
             title: chapter_title(&buf),
             source: ChapterSource::Track(track.id),
         });

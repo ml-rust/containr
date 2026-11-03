@@ -37,7 +37,7 @@ impl SampleSizes {
         let field_size = reader.u8("field_size")?;
         let count = reader.u32("sample_count")?;
         if !matches!(field_size, 4 | 8 | 16) {
-            return Err(Error::malformed(
+            return Err(Error::mp4_malformed(
                 path,
                 raw.offset,
                 format!("field_size is {field_size}. It must be 4, 8 or 16"),
@@ -46,7 +46,7 @@ impl SampleSizes {
         let needed = (u64::from(count) * u64::from(field_size)).div_ceil(8);
         let available = reader.rest().len() as u64;
         if needed > available {
-            return Err(Error::malformed(
+            return Err(Error::mp4_malformed(
                 path,
                 raw.offset,
                 format!(
@@ -83,7 +83,7 @@ impl SampleSizes {
                 field_size, data, ..
             } => match field_size {
                 4 => data.get(index / 2).map(|&byte| {
-                    u32::from(if index % 2 == 0 {
+                    u32::from(if index.is_multiple_of(2) {
                         byte >> 4
                     } else {
                         byte & 0x0F

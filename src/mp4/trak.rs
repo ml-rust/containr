@@ -7,14 +7,14 @@ use crate::error::{Error, Result};
 use crate::mp4::boxes::{RawBox, collect_children};
 use crate::mp4::metadata::{parse_meta, parse_udta};
 use crate::mp4::tables::{SampleTables, parse_stbl};
-use crate::track::{FourCc, Language, Track, TrackKind, TrackReference};
+use crate::track::{FourCc, Language, Timebase, Track, TrackKind, TrackReference};
 
 /// Find the one child of `kind`. A second one is an error.
 fn single<'a>(children: &[RawBox<'a>], kind: &[u8; 4], path: &str) -> Result<Option<RawBox<'a>>> {
     let mut found = None;
     for child in children.iter().filter(|child| &child.kind.0 == kind) {
         if found.is_some() {
-            return Err(Error::malformed(
+            return Err(Error::mp4_malformed(
                 format!("{path}/{}", child.kind),
                 child.offset,
                 "the box appears twice in its parent",
@@ -26,7 +26,8 @@ fn single<'a>(children: &[RawBox<'a>], kind: &[u8; 4], path: &str) -> Result<Opt
 }
 
 fn require<'a>(children: &[RawBox<'a>], kind: &[u8; 4], path: &str) -> Result<RawBox<'a>> {
-    single(children, kind, path)?.ok_or_else(|| Error::missing(format!("{path}/{}", FourCc(*kind))))
+    single(children, kind, path)?
+        .ok_or_else(|| Error::mp4_missing(format!("{path}/{}", FourCc(*kind))))
 }
 
 /// A 16.16 fixed-point value as its raw 32 bits.
@@ -57,7 +58,7 @@ pub(crate) fn parse_trak(
     let mdhd_raw = require(&mdia_children, b"mdhd", &mdia_path)?;
     let mdhd = mdhd_raw.decode::<Mdhd>(&mdhd_path)?;
     if mdhd.timescale == 0 {
-        return Err(Error::malformed(
+        return Err(Error::mp4_malformed(
             mdhd_path,
             mdhd_raw.offset,
             "timescale is 0",
@@ -108,9 +109,9 @@ pub(crate) fn parse_trak(
     let track = Track {
         id: tkhd.track_id,
         kind,
-        handler,
-        timescale: mdhd.timescale,
-        duration: mdhd.duration,
+        handler: Some(handler),
+        timebase: Timebase::from_timescale(mdhd.timescale),
+        duration: Some(mdhd.duration),
         language,
         matrix: [m.a, m.b, m.u, m.c, m.d, m.v, m.x, m.y, m.w],
         display_width: fixed_u32(&tkhd.width),
@@ -121,6 +122,7 @@ pub(crate) fn parse_trak(
         chapter_track: false,
         metadata,
         sample_count: tables.sample_count,
+        matroska: None,
     };
     Ok((track, tables))
 }
@@ -154,7 +156,7 @@ fn edits(children: &[RawBox<'_>], path: &str) -> Result<Vec<EditEntry>> {
             let media_time = match entry.media_time {
                 None => EditEntry::EMPTY_MEDIA_TIME,
                 Some(time) => i64::try_from(time).map_err(|_| {
-                    Error::malformed(
+                    Error::mp4_malformed(
                         &elst_path,
                         elst.offset,
                         format!("media_time {time} exceeds 2^63"),

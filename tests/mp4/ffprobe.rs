@@ -36,15 +36,15 @@ fn check_stream(fx: &Fixture, stream: &Value, track: &Track) {
     let (num, den) = ratio(text(stream, "time_base"), '/');
     assert_eq!(
         (num, den),
-        (1, u64::from(track.timescale)),
+        (u64::from(track.timebase.num), u64::from(track.timebase.den)),
         "{what}: timescale"
     );
     // libavformat rewrites the duration of a chapter track, and reports a
     // subtitle stream's duration_ts from the movie, not from `mdhd`.
     if !track.chapter_track && track.kind != TrackKind::Subtitle {
         assert_eq!(
-            int(stream, "duration_ts"),
-            track.duration as i64,
+            Some(int(stream, "duration_ts")),
+            track.duration.map(|d| d as i64),
             "{what}: mdhd duration"
         );
     }
@@ -136,23 +136,31 @@ fn check_packets(
     );
     // libavformat shifts dts down by the largest negative composition offset
     // and keeps pts. The shift is the same for every packet of the track.
+    let dts = |packet: &containr::Packet| {
+        packet
+            .dts
+            .unwrap_or_else(|| panic!("{what}: an MP4 packet has a dts"))
+    };
     let shift = ours
         .first()
-        .map_or(0, |first| first.dts - int(theirs[0], "dts"));
+        .map_or(0, |first| dts(first) - int(theirs[0], "dts"));
     assert!(shift >= 0, "{what}: dts shift {shift} is negative");
     for (n, (our, their)) in ours.iter().zip(&theirs).enumerate() {
         let at = format!("{what} packet {n}");
         assert_eq!(our.index, n as u64, "{at}: index");
         assert_eq!(our.pts, int(their, "pts"), "{at}: pts");
-        assert_eq!(our.dts - shift, int(their, "dts"), "{at}: dts");
+        assert_eq!(dts(our) - shift, int(their, "dts"), "{at}: dts");
         // A zero `stts` duration on the last sample stays zero here.
         // libavformat fills it up to the stream duration it reports, which
         // is the `mdhd` duration for audio and video and the movie duration
         // for subtitles.
-        let want = if our.duration == 0 && n + 1 == ours.len() {
-            int(stream, "duration_ts") - our.dts
+        let duration = our
+            .duration
+            .unwrap_or_else(|| panic!("{at}: an MP4 packet has a duration"));
+        let want = if duration == 0 && n + 1 == ours.len() {
+            int(stream, "duration_ts") - dts(our)
         } else {
-            i64::from(our.duration)
+            duration as i64
         };
         assert_eq!(want, int(their, "duration"), "{at}: duration");
         assert_eq!(i64::from(our.size), int(their, "size"), "{at}: size");

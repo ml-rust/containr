@@ -10,11 +10,47 @@ use std::path::PathBuf;
 /// The result type of every fallible containr call.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// The container format an error comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Container {
+    /// MP4 or QuickTime MOV.
+    Mp4,
+    /// Matroska or WebM.
+    Matroska,
+}
+
+impl Container {
+    /// The format name, as error messages print it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Mp4 => "MP4/MOV",
+            Self::Matroska => "Matroska/WebM",
+        }
+    }
+
+    /// What the format calls one structural unit: `box` or `element`.
+    pub const fn unit(self) -> &'static str {
+        match self {
+            Self::Mp4 => "box",
+            Self::Matroska => "element",
+        }
+    }
+
+    /// The output name the remux hint uses.
+    const fn remux_output(self) -> &'static str {
+        match self {
+            Self::Mp4 => "output.mp4",
+            Self::Matroska => "output.mkv",
+        }
+    }
+}
+
 /// A demux or mux error.
 ///
 /// `path` fields hold the box or element path inside the container, such as
-/// `moov/trak[2]/mdia/minf/stbl/stsz`. A `trak[n]` index counts from 1 in
-/// file order.
+/// `moov/trak[2]/mdia/minf/stbl/stsz` or `Segment/Tracks/TrackEntry[2]/CodecID`.
+/// A `trak[n]` or `TrackEntry[n]` index counts from 1 in file order.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -27,34 +63,42 @@ pub enum Error {
         /// The underlying error.
         source: io::Error,
     },
-    /// A box holds bytes that do not decode.
+    /// A box or element holds bytes that do not decode.
     Malformed {
-        /// The box path.
+        /// The container format.
+        container: Container,
+        /// The box or element path.
         path: String,
-        /// The byte offset of the box in the input.
+        /// The byte offset of the box or element in the input.
         offset: u64,
         /// What does not decode.
         reason: String,
     },
-    /// Two sample tables disagree, or a table refers past another one.
+    /// Two tables or elements disagree, or one refers past another one.
     Inconsistent {
-        /// The box path of the table that fails the check.
+        /// The container format.
+        container: Container,
+        /// The box or element path that fails the check.
         path: String,
         /// The values that disagree.
         reason: String,
     },
     /// A size from the input exceeds the bound the demuxer allows.
     TooLarge {
-        /// The box path.
+        /// The container format.
+        container: Container,
+        /// The box or element path.
         path: String,
         /// The size the input declares, in bytes or entries.
         declared: u64,
         /// The largest accepted value.
         limit: u64,
     },
-    /// A required box is absent.
+    /// A required box or element is absent.
     MissingBox {
-        /// The path of the absent box.
+        /// The container format.
+        container: Container,
+        /// The path of the absent box or element.
         path: String,
     },
     /// The input is fragmented MP4 (`moof` or `mvex`), which is out of scope.
@@ -94,8 +138,9 @@ pub enum Error {
 }
 
 // The constructors serve the container features. A build with none of them
-// compiles the type alone.
-#[cfg_attr(not(feature = "mp4"), allow(dead_code))]
+// compiles the type alone. The `mp4_` constructors build MP4/MOV errors.
+// The `mkv_` constructors build Matroska/WebM errors.
+#[cfg_attr(not(any(feature = "mp4", feature = "mkv")), allow(dead_code))]
 impl Error {
     pub(crate) fn io(what: impl Into<String>, offset: u64, source: io::Error) -> Self {
         Self::Io {
@@ -105,31 +150,95 @@ impl Error {
         }
     }
 
-    pub(crate) fn malformed(
+    #[cfg_attr(not(feature = "mp4"), allow(dead_code))]
+    pub(crate) fn mp4_malformed(
+        path: impl Into<String>,
+        offset: u64,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::malformed_in(Container::Mp4, path, offset, reason)
+    }
+
+    #[cfg_attr(not(feature = "mp4"), allow(dead_code))]
+    pub(crate) fn mp4_inconsistent(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::inconsistent_in(Container::Mp4, path, reason)
+    }
+
+    #[cfg_attr(not(feature = "mp4"), allow(dead_code))]
+    pub(crate) fn mp4_missing(path: impl Into<String>) -> Self {
+        Self::missing_in(Container::Mp4, path)
+    }
+
+    #[cfg_attr(not(feature = "mp4"), allow(dead_code))]
+    pub(crate) fn mp4_too_large(path: impl Into<String>, declared: u64, limit: u64) -> Self {
+        Self::too_large_in(Container::Mp4, path, declared, limit)
+    }
+
+    #[cfg_attr(not(feature = "mkv"), allow(dead_code))]
+    pub(crate) fn mkv_malformed(
+        path: impl Into<String>,
+        offset: u64,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::malformed_in(Container::Matroska, path, offset, reason)
+    }
+
+    #[cfg_attr(not(feature = "mkv"), allow(dead_code))]
+    pub(crate) fn mkv_inconsistent(path: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::inconsistent_in(Container::Matroska, path, reason)
+    }
+
+    #[cfg_attr(not(feature = "mkv"), allow(dead_code))]
+    pub(crate) fn mkv_missing(path: impl Into<String>) -> Self {
+        Self::missing_in(Container::Matroska, path)
+    }
+
+    #[cfg_attr(not(feature = "mkv"), allow(dead_code))]
+    pub(crate) fn mkv_too_large(path: impl Into<String>, declared: u64, limit: u64) -> Self {
+        Self::too_large_in(Container::Matroska, path, declared, limit)
+    }
+
+    fn malformed_in(
+        container: Container,
         path: impl Into<String>,
         offset: u64,
         reason: impl Into<String>,
     ) -> Self {
         Self::Malformed {
+            container,
             path: path.into(),
             offset,
             reason: reason.into(),
         }
     }
 
-    pub(crate) fn inconsistent(path: impl Into<String>, reason: impl Into<String>) -> Self {
+    fn inconsistent_in(
+        container: Container,
+        path: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
         Self::Inconsistent {
+            container,
             path: path.into(),
             reason: reason.into(),
         }
     }
 
-    pub(crate) fn missing(path: impl Into<String>) -> Self {
-        Self::MissingBox { path: path.into() }
+    fn missing_in(container: Container, path: impl Into<String>) -> Self {
+        Self::MissingBox {
+            container,
+            path: path.into(),
+        }
     }
 
-    pub(crate) fn too_large(path: impl Into<String>, declared: u64, limit: u64) -> Self {
+    fn too_large_in(
+        container: Container,
+        path: impl Into<String>,
+        declared: u64,
+        limit: u64,
+    ) -> Self {
         Self::TooLarge {
+            container,
             path: path.into(),
             declared,
             limit,
@@ -150,35 +259,48 @@ impl fmt::Display for Error {
                  Check that the input is complete and readable"
             ),
             Self::Malformed {
+                container,
                 path,
                 offset,
                 reason,
             } => write!(
                 f,
-                "box `{path}` at byte offset {offset} is malformed: {reason}. \
-                 The input is damaged or not MP4/MOV. Remux it with \
-                 `ffmpeg -i <input> -c copy <output.mp4>` and open the output"
+                "{} `{path}` at byte offset {offset} is malformed: {reason}. \
+                 The input is damaged or not {}. Remux it with \
+                 `ffmpeg -i <input> -c copy <{}>` and open the output",
+                container.unit(),
+                container.name(),
+                container.remux_output()
             ),
-            Self::Inconsistent { path, reason } => write!(
+            Self::Inconsistent {
+                container,
+                path,
+                reason,
+            } => write!(
                 f,
-                "sample table `{path}` is inconsistent: {reason}. \
-                 The input is damaged. Remux it with \
-                 `ffmpeg -i <input> -c copy <output.mp4>` and open the output"
+                "{} `{path}` is inconsistent: {reason}. The input is damaged. \
+                 Remux it with `ffmpeg -i <input> -c copy <{}>` and open the output",
+                container.unit(),
+                container.remux_output()
             ),
             Self::TooLarge {
+                container,
                 path,
                 declared,
                 limit,
             } => write!(
                 f,
-                "box `{path}` declares {declared}, above the limit of {limit}. \
+                "{} `{path}` declares {declared}, above the limit of {limit}. \
                  The input is damaged, or it needs a larger limit than this \
-                 demuxer accepts"
+                 demuxer accepts",
+                container.unit()
             ),
-            Self::MissingBox { path } => write!(
+            Self::MissingBox { container, path } => write!(
                 f,
-                "required box `{path}` is absent. The input is truncated or \
-                 not MP4/MOV. Supply a complete file"
+                "required {} `{path}` is absent. The input is truncated or \
+                 not {}. Supply a complete file",
+                container.unit(),
+                container.name()
             ),
             Self::Fragmented { path, offset } => write!(
                 f,

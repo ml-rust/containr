@@ -93,8 +93,9 @@ jobs:
         run: cargo clippy --features "$FEATURES" --all-targets -- -D warnings
 
   # ─────────────────────────────────────────────────────────────────────────
-  # The MP4/MOV fixtures come from tests/fixtures/gen_mp4.py, which runs
-  # FFmpeg. Media never enters the repository.
+  # The MP4/MOV and Matroska/WebM fixtures come from tests/fixtures/gen_mp4.py
+  # and tests/fixtures/gen_mkv.py, which run FFmpeg. Media never enters the
+  # repository.
   test:
     name: Test (all features)
     runs-on: ubuntu-latest
@@ -114,7 +115,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Generate fixtures
-        run: python3 tests/fixtures/gen_mp4.py
+        run: |
+          python3 tests/fixtures/gen_mp4.py
+          python3 tests/fixtures/gen_mkv.py
 
       - name: Run tests
         run: cargo test --all-features --no-fail-fast

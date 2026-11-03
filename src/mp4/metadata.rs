@@ -92,7 +92,7 @@ fn parse_keys(keys: &RawBox<'_>, path: &str) -> Result<Vec<Vec<u8>>> {
         let field = format!("key {i}");
         let size = reader.u32(&field)?;
         let name_len = (size as usize).checked_sub(8).ok_or_else(|| {
-            Error::malformed(
+            Error::mp4_malformed(
                 path,
                 keys.offset,
                 format!("key {i} declares size {size}, below the 8-byte minimum"),

@@ -212,15 +212,18 @@ pub fn movie(moov_first: bool) -> (Vec<u8>, Vec<Packet>) {
             packets.push(Packet {
                 track_id: track,
                 index: u64::from(index),
-                dts: dts[slot],
+                dts: Some(dts[slot]),
                 pts: dts[slot] + offset,
-                duration,
+                duration: Some(duration),
                 sync,
+                discardable: false,
+                discard_padding: None,
+                lace: None,
                 offset: (mdat_start + 8 + data.len()) as u64,
                 size,
                 description_index: 1,
             });
-            dts[slot] += i64::from(duration);
+            dts[slot] += i64::try_from(duration).expect("synthetic duration fits i64");
             data.extend(sample_bytes(track, index, size));
         }
     }

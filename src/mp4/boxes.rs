@@ -29,7 +29,7 @@ impl<'a> RawBox<'a> {
         let mut children = Children::new(data, offset, path);
         match children.next() {
             Some(Ok(raw)) if raw.full.len() == data.len() => Ok(raw),
-            Some(Ok(raw)) => Err(Error::malformed(
+            Some(Ok(raw)) => Err(Error::mp4_malformed(
                 path,
                 offset,
                 format!(
@@ -39,7 +39,7 @@ impl<'a> RawBox<'a> {
                 ),
             )),
             Some(Err(err)) => Err(err),
-            None => Err(Error::malformed(
+            None => Err(Error::mp4_malformed(
                 path,
                 offset,
                 format!("{} bytes are too few for a box header", data.len()),
@@ -50,7 +50,7 @@ impl<'a> RawBox<'a> {
     /// Iterate the child boxes that start `skip` bytes into the body.
     pub fn children<'p>(&self, skip: usize, path: &'p str) -> Result<Children<'a, 'p>> {
         let body = self.body.get(skip..).ok_or_else(|| {
-            Error::malformed(
+            Error::mp4_malformed(
                 path,
                 self.offset,
                 format!(
@@ -65,7 +65,8 @@ impl<'a> RawBox<'a> {
     /// Decode the box with an mp4-atom type.
     pub fn decode<T: Decode>(&self, path: &str) -> Result<T> {
         let mut bytes = self.full;
-        T::decode(&mut bytes).map_err(|err| Error::malformed(path, self.offset, err.to_string()))
+        T::decode(&mut bytes)
+            .map_err(|err| Error::mp4_malformed(path, self.offset, err.to_string()))
     }
 
     /// A field reader over the body.
@@ -103,7 +104,7 @@ impl<'a, 'p> Children<'a, 'p> {
 
     fn fail(&mut self, offset: u64, reason: String) -> Option<Result<RawBox<'a>>> {
         self.pos = self.data.len();
-        Some(Err(Error::malformed(self.path, offset, reason)))
+        Some(Err(Error::mp4_malformed(self.path, offset, reason)))
     }
 }
 
@@ -189,7 +190,7 @@ impl<'a> FieldReader<'a, '_> {
                 self.pos = end;
                 Ok(out)
             }
-            None => Err(Error::malformed(
+            None => Err(Error::mp4_malformed(
                 self.path,
                 self.offset,
                 format!(

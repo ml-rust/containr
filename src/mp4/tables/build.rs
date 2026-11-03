@@ -59,7 +59,7 @@ impl<'a> Found<'a> {
                 _ => continue,
             };
             if slot.is_some() {
-                return Err(Error::malformed(
+                return Err(Error::mp4_malformed(
                     format!("{path}/{}", child.kind),
                     child.offset,
                     "the box appears twice in one stbl",
@@ -72,7 +72,7 @@ impl<'a> Found<'a> {
 }
 
 fn required<'a>(raw: Option<RawBox<'a>>, path: &str, name: &str) -> Result<RawBox<'a>> {
-    raw.ok_or_else(|| Error::missing(format!("{path}/{name}")))
+    raw.ok_or_else(|| Error::mp4_missing(format!("{path}/{name}")))
 }
 
 /// One of two alternative boxes, which must not both appear.
@@ -84,7 +84,7 @@ fn either<'a>(
 ) -> Result<RawBox<'a>> {
     match (first, second) {
         (Some(raw), None) | (None, Some(raw)) => Ok(raw),
-        (Some(_), Some(raw)) => Err(Error::malformed(
+        (Some(_), Some(raw)) => Err(Error::mp4_malformed(
             format!("{path}/{}", names.1),
             raw.offset,
             format!(
@@ -92,7 +92,7 @@ fn either<'a>(
                 names.0, names.1
             ),
         )),
-        (None, None) => Err(Error::missing(format!("{path}/{}", names.0))),
+        (None, None) => Err(Error::mp4_missing(format!("{path}/{}", names.0))),
     }
 }
 
@@ -120,7 +120,7 @@ pub(crate) fn parse_stbl(
     let durations = duration_runs(required(found.stts, path, "stts")?.decode::<Stts>(&stts_path)?);
     let covered = run_total(&durations);
     if covered != sample_count {
-        return Err(Error::inconsistent(
+        return Err(Error::mp4_inconsistent(
             stts_path,
             format!(
                 "stts covers {covered} samples, but {} holds {sample_count}",
@@ -135,7 +135,7 @@ pub(crate) fn parse_stbl(
             let runs = offset_runs(raw.decode::<Ctts>(&ctts_path)?);
             let covered = run_total(&runs);
             if covered != sample_count {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     ctts_path,
                     format!(
                         "ctts covers {covered} samples, but {} holds {sample_count}",
@@ -162,7 +162,7 @@ pub(crate) fn parse_stbl(
     let chunks = ChunkMap::new(stsc, chunk_offsets, entries.len(), &stsc_path)?;
     let mapped = chunks.sample_count(&stsc_path)?;
     if mapped != sample_count {
-        return Err(Error::inconsistent(
+        return Err(Error::mp4_inconsistent(
             stsc_path,
             format!(
                 "stsc places {mapped} samples in the chunks of {}, but {} holds {sample_count}",

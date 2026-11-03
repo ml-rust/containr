@@ -31,7 +31,8 @@ This table is the single source of truth on what works. NEVER describe a roadmap
 | MP4/MOV demux (`mp4`): tracks, sample tables, packets, raw edit lists, `udta`/`meta` metadata, `chpl` and chapter-track chapters | Implemented |
 | Fragmented MP4 (`moof`) demux | Roadmap |
 | MP4/MOV mux | Roadmap |
-| MKV/WebM demux and mux (`mkv`) | Roadmap |
+| MKV/WebM demux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters of known and unknown size, `SimpleBlock` and `BlockGroup`, Xiph, EBML and fixed lacing, `Cues`, `Chapters`, `Tags`, `Attachments` | Implemented |
+| MKV/WebM mux | Roadmap |
 | Stream copy | Roadmap |
 
 Update this table in the same change that implements a capability.

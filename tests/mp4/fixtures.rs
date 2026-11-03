@@ -59,7 +59,9 @@ fn moov_after_mdat_and_faststart_hold_the_same_samples() {
         position(&fast_kinds, "moov") < position(&fast_kinds, "mdat"),
         "{fast_kinds:?}"
     );
-    let timing = |packets: Vec<Packet>| -> Vec<(i64, i64, u32, u32, bool)> {
+    /// pts, dts, duration, size and sync flag of one packet.
+    type Timing = (i64, Option<i64>, Option<u64>, u32, bool);
+    let timing = |packets: Vec<Packet>| -> Vec<Timing> {
         packets
             .iter()
             .map(|p| (p.pts, p.dts, p.duration, p.size, p.sync))
@@ -85,7 +87,11 @@ fn h264_b_frames_give_pts_after_dts() {
         demuxer.track(video).and_then(|t| t.codec_config()),
         Some(CodecConfig::Avc(_))
     ));
-    assert!(packets(&demuxer, video).iter().any(|p| p.pts != p.dts));
+    assert!(
+        packets(&demuxer, video)
+            .iter()
+            .any(|p| p.dts != Some(p.pts))
+    );
     let audio = first_of(&demuxer, TrackKind::Audio);
     assert!(matches!(
         demuxer.track(audio).and_then(|t| t.codec_config()),
@@ -94,7 +100,7 @@ fn h264_b_frames_give_pts_after_dts() {
     assert!(
         packets(&demuxer, audio)
             .iter()
-            .all(|p| p.sync && p.pts == p.dts)
+            .all(|p| p.sync && p.dts == Some(p.pts))
     );
 }
 
@@ -104,7 +110,11 @@ fn negative_cts_offsets_give_pts_before_dts() {
         return;
     };
     let video = first_of(&demuxer, TrackKind::Video);
-    assert!(packets(&demuxer, video).iter().any(|p| p.pts < p.dts));
+    assert!(
+        packets(&demuxer, video)
+            .iter()
+            .any(|p| p.dts.is_some_and(|dts| p.pts < dts))
+    );
 }
 
 #[test]
@@ -144,9 +154,9 @@ fn mov_text_is_a_subtitle_track() {
     let samples: u64 = demuxer
         .track_packets(subtitle.id)
         .expect("subtitle packets")
-        .map(|p| u64::from(p.expect("subtitle packet").duration))
+        .map(|p| p.expect("subtitle packet").duration.unwrap_or_default())
         .sum();
-    assert_eq!(subtitle.duration, samples, "subtitle mdhd duration");
+    assert_eq!(subtitle.duration, Some(samples), "subtitle mdhd duration");
 }
 
 #[test]
@@ -184,7 +194,7 @@ fn itsoffset_writes_an_empty_edit() {
     );
     assert_eq!(
         packets(&demuxer, video.id)[0].dts,
-        0,
+        Some(0),
         "the demuxer must not apply the edit list"
     );
 }

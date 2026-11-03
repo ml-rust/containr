@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod mkv_synth;
 pub mod synth;
 
 use std::path::PathBuf;
@@ -16,15 +17,24 @@ pub struct Fixture {
     pub probe: Value,
 }
 
-/// The fixture directory the generator writes.
-pub fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mp4")
+/// The fixture directory and generator for a fixture name: `mkv` and
+/// `webm` files come from gen_mkv.py, the rest from gen_mp4.py.
+pub fn fixture_source(name: &str) -> (PathBuf, &'static str) {
+    let matroska = name.ends_with(".mkv") || name.ends_with(".webm");
+    let (dir, generator) = if matroska {
+        ("mkv", "gen_mkv.py")
+    } else {
+        ("mp4", "gen_mp4.py")
+    };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    (root.join(dir), generator)
 }
 
 /// Load fixture `name`, or print a notice and return `None` when the
 /// generator has not run.
 pub fn fixture(name: &str) -> Option<Fixture> {
-    let path = fixture_dir().join(name);
+    let (dir, generator) = fixture_source(name);
+    let path = dir.join(name);
     let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
         panic!("fixture name {name} has no file stem");
     };
@@ -32,7 +42,7 @@ pub fn fixture(name: &str) -> Option<Fixture> {
     let (Ok(bytes), Ok(probe)) = (std::fs::read(&path), std::fs::read_to_string(&probe_path))
     else {
         eprintln!(
-            "skipping: fixture {} or {} is missing. Run `python3 tests/fixtures/gen_mp4.py` to generate it.",
+            "skipping: fixture {} or {} is missing. Run `python3 tests/fixtures/{generator}` to generate it.",
             path.display(),
             probe_path.display()
         );

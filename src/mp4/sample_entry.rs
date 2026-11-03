@@ -37,7 +37,7 @@ pub(crate) fn parse_stsd(
         entries.push(parse_entry(&child, &entry_path, kind)?);
     }
     if entries.len() as u64 != u64::from(declared) {
-        return Err(Error::malformed(
+        return Err(Error::mp4_malformed(
             path,
             stsd.offset,
             format!(
@@ -132,7 +132,7 @@ fn audio_fields(entry: &RawBox<'_>, path: &str) -> Result<(AudioInfo, usize)> {
             let bits = reader.u32("constBitsPerChannel")?;
             reader.skip(12, "version 2 sound description flags and packet fields")?;
             let sample_rate = whole_hz(rate_bits).ok_or_else(|| {
-                Error::malformed(
+                Error::mp4_malformed(
                     path,
                     entry.offset,
                     format!("audioSampleRate bits {rate_bits:#018x} are not a whole number of Hz below 2^32"),
@@ -147,7 +147,7 @@ fn audio_fields(entry: &RawBox<'_>, path: &str) -> Result<(AudioInfo, usize)> {
                 AUDIO_V2_LEN,
             ))
         }
-        other => Err(Error::malformed(
+        other => Err(Error::mp4_malformed(
             path,
             entry.offset,
             format!(

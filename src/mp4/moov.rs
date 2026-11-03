@@ -38,7 +38,7 @@ pub(crate) fn parse_moov(bytes: &[u8], offset: u64) -> Result<Movie> {
         match &child.kind.0 {
             b"mvhd" => {
                 if mvhd.is_some() {
-                    return Err(Error::malformed(
+                    return Err(Error::mp4_malformed(
                         "moov/mvhd",
                         child.offset,
                         "the box appears twice in moov",
@@ -62,7 +62,7 @@ pub(crate) fn parse_moov(bytes: &[u8], offset: u64) -> Result<Movie> {
             _ => {}
         }
     }
-    let mvhd = mvhd.ok_or_else(|| Error::missing("moov/mvhd"))?;
+    let mvhd = mvhd.ok_or_else(|| Error::mp4_missing("moov/mvhd"))?;
 
     let mut tracks = Vec::with_capacity(traks.len());
     let mut tables = Vec::with_capacity(traks.len());
@@ -71,7 +71,7 @@ pub(crate) fn parse_moov(bytes: &[u8], offset: u64) -> Result<Movie> {
         let path = format!("moov/trak[{}]", n + 1);
         let (track, table) = parse_trak(trak, &path, mvhd.timescale)?;
         if !ids.insert(track.id) {
-            return Err(Error::malformed(
+            return Err(Error::mp4_malformed(
                 format!("{path}/tkhd"),
                 trak.offset,
                 format!("track id {} is already in use by an earlier trak", track.id),

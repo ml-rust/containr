@@ -38,7 +38,7 @@ impl ChunkMap {
         let mut previous = 0u32;
         for (i, run) in runs.iter().enumerate() {
             if i == 0 && run.first_chunk != 1 {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!(
                         "the first entry starts at chunk {}, not chunk 1",
@@ -47,7 +47,7 @@ impl ChunkMap {
                 ));
             }
             if run.first_chunk <= previous {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!(
                         "entry {i} starts at chunk {} after an entry that starts at chunk {previous}",
@@ -56,7 +56,7 @@ impl ChunkMap {
                 ));
             }
             if u64::from(run.first_chunk) > chunk_count {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!(
                         "entry {i} starts at chunk {}, but the chunk offset table holds {chunk_count} chunks",
@@ -65,7 +65,7 @@ impl ChunkMap {
                 ));
             }
             if run.description_index == 0 || run.description_index as usize > descriptions {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!(
                         "entry {i} uses sample description {}, but stsd holds {descriptions}",
@@ -76,7 +76,7 @@ impl ChunkMap {
             previous = run.first_chunk;
         }
         if runs.is_empty() && !offsets.is_empty() {
-            return Err(Error::inconsistent(
+            return Err(Error::mp4_inconsistent(
                 path,
                 format!(
                     "the table is empty, but the chunk offset table holds {chunk_count} chunks"
@@ -99,7 +99,9 @@ impl ChunkMap {
             total = chunks
                 .checked_mul(u64::from(run.samples_per_chunk))
                 .and_then(|samples| total.checked_add(samples))
-                .ok_or_else(|| Error::inconsistent(path, "the sample count overflows 64 bits"))?;
+                .ok_or_else(|| {
+                    Error::mp4_inconsistent(path, "the sample count overflows 64 bits")
+                })?;
         }
         Ok(total)
     }
@@ -149,7 +151,7 @@ impl ChunkCursor {
         }
         let offset = self.next_offset;
         self.next_offset = offset.checked_add(u64::from(size)).ok_or_else(|| {
-            Error::inconsistent(
+            Error::mp4_inconsistent(
                 path,
                 format!("a sample of {size} bytes at offset {offset} ends past 2^64"),
             )

@@ -53,7 +53,7 @@ impl SampleCursor {
         let path = tables.path.as_str();
         let index = self.index;
         let ended = |table: &str| {
-            Error::inconsistent(
+            Error::mp4_inconsistent(
                 format!("{path}/{table}"),
                 format!("the table ends before sample {index}"),
             )
@@ -73,13 +73,13 @@ impl SampleCursor {
             .ok_or_else(|| ended("stsc"))?;
         let dts = self.dts;
         let pts = dts.checked_add(composition).ok_or_else(|| {
-            Error::inconsistent(
+            Error::mp4_inconsistent(
                 format!("{path}/ctts"),
                 format!("sample {index}: dts {dts} plus offset {composition} overflows 64 bits"),
             )
         })?;
         self.dts = dts.checked_add(i64::from(duration)).ok_or_else(|| {
-            Error::inconsistent(
+            Error::mp4_inconsistent(
                 format!("{path}/stts"),
                 format!("sample {index}: dts {dts} plus duration {duration} overflows 64 bits"),
             )
@@ -89,10 +89,13 @@ impl SampleCursor {
         Ok(Packet {
             track_id: tables.track_id,
             index,
-            dts,
+            dts: Some(dts),
             pts,
-            duration,
+            duration: Some(u64::from(duration)),
             sync,
+            discardable: false,
+            discard_padding: None,
+            lace: None,
             offset,
             size,
             description_index,

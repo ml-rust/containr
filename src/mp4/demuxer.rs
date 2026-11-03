@@ -14,6 +14,7 @@ use crate::mp4::moov::{Movie, parse_moov};
 use crate::mp4::packets::{Packets, TrackPackets};
 use crate::mp4::tables::SampleCursor;
 use crate::packet::Packet;
+use crate::read::read_range;
 use crate::track::{FourCc, Track};
 
 /// The largest `moov` box read, in bytes. The whole box is held in memory.
@@ -74,7 +75,7 @@ impl<R: Read + Seek> Demuxer<R> {
                 }
                 b"moov" => {
                     if moov.is_some() {
-                        return Err(Error::malformed(
+                        return Err(Error::mp4_malformed(
                             "moov",
                             pos,
                             "a second moov box follows the first",
@@ -95,7 +96,7 @@ impl<R: Read + Seek> Demuxer<R> {
             }
             pos += box_len;
         }
-        let (moov_offset, moov_bytes) = moov.ok_or_else(|| Error::missing("moov"))?;
+        let (moov_offset, moov_bytes) = moov.ok_or_else(|| Error::mp4_missing("moov"))?;
         let mut movie = parse_moov(&moov_bytes, moov_offset)?;
         drop(moov_bytes);
         for (track, tables) in movie.tracks.iter().zip(&movie.tables) {
@@ -221,7 +222,7 @@ fn top_level_header<R: Read + Seek>(
         .map_err(|err| Error::io("a top-level box header", pos, err))?;
     let mut cursor = &bytes[..take];
     let header = Header::decode(&mut cursor).map_err(|err| {
-        Error::malformed(
+        Error::mp4_malformed(
             "top-level box",
             pos,
             format!("the box header does not decode: {err}"),
@@ -238,7 +239,7 @@ fn top_level_header<R: Read + Seek>(
         if &kind.0 == b"mdat" {
             return Ok((kind, remaining));
         }
-        return Err(Error::malformed(
+        return Err(Error::mp4_malformed(
             kind.to_string(),
             pos,
             format!("the box declares {box_len} bytes, but {remaining} remain in the input"),
@@ -256,7 +257,7 @@ fn read_box<R: Read + Seek>(
     limit: u64,
 ) -> Result<Vec<u8>> {
     if box_len > limit {
-        return Err(Error::too_large(path, box_len, limit));
+        return Err(Error::mp4_too_large(path, box_len, limit));
     }
     let mut bytes = vec![0u8; box_len as usize];
     reader
@@ -264,37 +265,4 @@ fn read_box<R: Read + Seek>(
         .and_then(|_| reader.read_exact(&mut bytes))
         .map_err(|err| Error::io(format!("box `{path}`"), pos, err))?;
     Ok(bytes)
-}
-
-/// Read the bytes of `packet` into `buf`, after checking them against the
-/// input length.
-pub(crate) fn read_range<R: Read + Seek>(
-    reader: &mut R,
-    input_len: u64,
-    packet: &Packet,
-    buf: &mut Vec<u8>,
-) -> Result<()> {
-    let out_of_bounds = Error::PacketOutOfBounds {
-        track_id: packet.track_id,
-        index: packet.index,
-        offset: packet.offset,
-        size: packet.size,
-        input_len,
-    };
-    match packet.offset.checked_add(u64::from(packet.size)) {
-        Some(end) if end <= input_len => {}
-        _ => return Err(out_of_bounds),
-    }
-    buf.clear();
-    buf.resize(packet.size as usize, 0);
-    reader
-        .seek(SeekFrom::Start(packet.offset))
-        .and_then(|_| reader.read_exact(buf))
-        .map_err(|err| {
-            Error::io(
-                format!("packet {} of track {}", packet.index, packet.track_id),
-                packet.offset,
-                err,
-            )
-        })
 }

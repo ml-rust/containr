@@ -3,6 +3,7 @@
 use std::fmt;
 
 use crate::edit::EditList;
+use crate::matroska::MatroskaTrack;
 use crate::metadata::MetadataItem;
 
 /// A four-character code, as the container stores it.
@@ -41,18 +42,20 @@ impl From<&[u8; 4]> for FourCc {
     }
 }
 
-/// What a track carries, from its handler type.
+/// What a track carries: from the MP4 handler type, or the Matroska
+/// `TrackType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TrackKind {
-    /// Handler `vide`.
+    /// Handler `vide`. `TrackType` 1.
     Video,
-    /// Handler `soun`.
+    /// Handler `soun`. `TrackType` 2.
     Audio,
-    /// Handler `sbtl`, `subt`, `text` or `clcp`.
+    /// Handler `sbtl`, `subt`, `text` or `clcp`. `TrackType` 17.
     Subtitle,
-    /// Handler `meta`, `tmcd` or `hint`.
+    /// Handler `meta`, `tmcd` or `hint`. `TrackType` 33 (metadata) or 32
+    /// (control).
     Data,
-    /// Any other handler.
+    /// Any other handler or `TrackType`.
     Other,
 }
 
@@ -65,6 +68,47 @@ impl TrackKind {
             b"sbtl" | b"subt" | b"text" | b"clcp" => Self::Subtitle,
             b"meta" | b"tmcd" | b"hint" => Self::Data,
             _ => Self::Other,
+        }
+    }
+
+    /// The kind a Matroska `TrackType` names.
+    pub fn from_matroska_type(track_type: u64) -> Self {
+        match track_type {
+            1 => Self::Video,
+            2 => Self::Audio,
+            17 => Self::Subtitle,
+            32 | 33 => Self::Data,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// The duration of one timestamp tick: `num / den` seconds.
+///
+/// MP4 counts in `1 / timescale` seconds. Matroska counts in
+/// `TimestampScale / 1 000 000 000` seconds. Both stay integers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Timebase {
+    /// Numerator, in seconds.
+    pub num: u32,
+    /// Denominator.
+    pub den: u32,
+}
+
+impl Timebase {
+    /// The timebase of an MP4 `timescale`: `1 / timescale` seconds.
+    pub const fn from_timescale(timescale: u32) -> Self {
+        Self {
+            num: 1,
+            den: timescale,
+        }
+    }
+
+    /// The timebase of a Matroska `TimestampScale`, in nanoseconds per tick.
+    pub const fn from_nanoseconds(nanoseconds: u32) -> Self {
+        Self {
+            num: nanoseconds,
+            den: 1_000_000_000,
         }
     }
 }
@@ -211,44 +255,65 @@ pub struct TrackReference {
     pub track_ids: Vec<u32>,
 }
 
-/// A track and its facts. Timestamps count in `timescale` ticks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A track and its facts. Timestamps count in `timebase` ticks.
+///
+/// The `handler`, `matrix`, `display_width`, `display_height`,
+/// `sample_entries`, `edit_list`, `references` and `chapter_track` fields
+/// hold MP4/MOV facts. A Matroska track leaves them empty, and holds its
+/// own facts in `matroska`.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Track {
-    /// The track id from `tkhd`.
+    /// The track id: the `tkhd` track id, or the Matroska `TrackNumber`.
     pub id: u32,
     /// What the track carries.
     pub kind: TrackKind,
-    /// The `hdlr` handler type.
-    pub handler: FourCc,
-    /// Ticks per second of the track's timestamps (`mdhd`).
-    pub timescale: u32,
-    /// Media duration in `timescale` ticks (`mdhd`).
-    pub duration: u64,
-    /// The `mdhd` language.
+    /// The `hdlr` handler type. `None` for Matroska, which has no handler.
+    pub handler: Option<FourCc>,
+    /// The tick of the track's timestamps: `1 / mdhd timescale` seconds, or
+    /// `TimestampScale` nanoseconds.
+    pub timebase: Timebase,
+    /// Media duration in `timebase` ticks (`mdhd`). `None` for Matroska,
+    /// which stores no per-track duration.
+    pub duration: Option<u64>,
+    /// The `mdhd` language, or the Matroska `Language` element. A Matroska
+    /// value that is not three lowercase letters gives `und`. The raw
+    /// strings, `LanguageBCP47` included, are in
+    /// [`MatroskaTrack::language`] and [`MatroskaTrack::language_bcp47`].
     pub language: Language,
     /// The `tkhd` matrix in file order: `a b u c d v x y w`. `a`, `b`, `c`,
     /// `d`, `x` and `y` are 16.16 fixed point, `u`, `v` and `w` are 2.30.
+    /// Identity for Matroska, which stores rotation as
+    /// [`Projection::pose_roll`](crate::matroska::Projection::pose_roll).
     pub matrix: [i32; 9],
-    /// The `tkhd` width, 16.16 fixed point.
+    /// The `tkhd` width, 16.16 fixed point. 0 for Matroska.
     pub display_width: u32,
-    /// The `tkhd` height, 16.16 fixed point.
+    /// The `tkhd` height, 16.16 fixed point. 0 for Matroska.
     pub display_height: u32,
     /// The sample descriptions. A packet's `description_index` counts into
-    /// this list from 1.
+    /// this list from 1. Empty for Matroska.
     pub sample_entries: Vec<SampleEntry>,
-    /// The raw edit list. The demuxer never applies it.
+    /// The raw edit list. The demuxer never applies it. Empty for Matroska.
     pub edit_list: EditList,
-    /// The `tref` entries.
+    /// The `tref` entries. Empty for Matroska.
     pub references: Vec<TrackReference>,
     /// True when another track names this one in a `chap` reference.
     pub chapter_track: bool,
-    /// Track-level metadata from `udta` and `meta`.
+    /// Track-level metadata: `udta` and `meta` items, or Matroska tags
+    /// whose target is this track's `TrackUID`.
     pub metadata: Vec<MetadataItem>,
-    /// The number of samples.
+    /// The number of samples: MP4 samples, or Matroska frames after lacing
+    /// is expanded.
     pub sample_count: u64,
+    /// Matroska facts. `None` for an MP4/MOV track.
+    pub matroska: Option<MatroskaTrack>,
 }
 
 impl Track {
+    /// The Matroska `CodecID`, such as `V_MPEG4/ISO/AVC`.
+    pub fn codec_id(&self) -> Option<&str> {
+        self.matroska.as_ref().map(|mkv| mkv.codec_id.as_str())
+    }
+
     /// The first sample entry, which holds the codec of most tracks.
     pub fn sample_entry(&self) -> Option<&SampleEntry> {
         self.sample_entries.first()

@@ -15,6 +15,7 @@ cargo clippy --all-targets --features mp4 -- -D warnings
 cargo clippy --all-targets --features mkv -- -D warnings
 cargo clippy --all-targets --features mp4,mkv -- -D warnings
 python3 tests/fixtures/gen_mp4.py
+python3 tests/fixtures/gen_mkv.py
 cargo test --all-features --no-fail-fast
 cargo deny --exclude-dev check
 shellcheck scripts/ci/*.sh
@@ -22,15 +23,16 @@ shellcheck scripts/ci/*.sh
 
 ## Test fixtures
 
-Media files never enter the repository. The MP4/MOV tests read fixtures that a script generates:
+Media files never enter the repository. The tests read fixtures that two scripts generate:
 
 ```bash
 python3 tests/fixtures/gen_mp4.py
+python3 tests/fixtures/gen_mkv.py
 ```
 
-The script needs `ffmpeg` and `ffprobe` on `PATH`, built with libx264, libx265 and libopus. It writes into `tests/fixtures/mp4/`, which git ignores:
+The scripts need `ffmpeg` and `ffprobe` on `PATH`, built with libx264, libx265 and libopus. gen_mkv.py also needs libvpx-vp9. It skips the AV1 fixture without an AV1 encoder, and the attachment fixture without a TrueType font. The scripts write into `tests/fixtures/mp4/` and `tests/fixtures/mkv/`, which git ignores:
 
-- `<name>.mp4` or `<name>.mov`: the fixture.
+- `<name>.mp4`, `<name>.mov`, `<name>.mkv` or `<name>.webm`: the fixture.
 - `<name>.probe.json`: the ffprobe reference data the tests compare against.
 
 A test whose fixture is missing prints a notice and skips. The synthetic and corruption tests build their input in memory and always run.

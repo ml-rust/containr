@@ -23,13 +23,13 @@ impl SyncSamples {
         let mut previous = 0u32;
         for (i, &number) in stss.entries.iter().enumerate() {
             if number <= previous {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!("entry {i} names sample {number} after sample {previous}"),
                 ));
             }
             if u64::from(number) > sample_count {
-                return Err(Error::inconsistent(
+                return Err(Error::mp4_inconsistent(
                     path,
                     format!(
                         "entry {i} names sample {number}, but the track holds {sample_count} samples"
