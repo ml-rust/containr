@@ -6,20 +6,27 @@
 //! stays the stored value, so `ctts` holds what the sort moves, with signed
 //! offsets when a frame presents before it decodes.
 //!
-//! Negative Matroska timestamps mark decoder delay (`CodecDelay`), and a
-//! `DiscardPadding` on the last block trims the end. MP4 expresses both with
-//! an edit list, so the plan adds one edit from time 0 to the end of the
-//! last packet. `BlockDuration` already excludes the padding in the files
-//! FFmpeg writes, and the edit list uses the stored duration.
+//! Negative Matroska timestamps, a `CodecDelay` and a `DiscardPadding` on the
+//! last block mark audio to skip. MP4 expresses all three with an edit list,
+//! so the plan adds one edit that ends at the end of the last packet.
+//! `BlockDuration` already excludes the padding in the files FFmpeg writes,
+//! and the edit list uses the stored duration.
+//!
+//! A reader shows a block at its timestamp minus `CodecDelay`, so the edit
+//! starts at `CodecDelay` in track ticks. The segment lasts to the end of the
+//! last packet less that start. An AAC track carries the delay in the edit
+//! alone. An Opus track already carries it in `dOps` `pre_skip`, which every
+//! player applies, so its edit starts at 0. A second skip would drop the
+//! delay twice.
 
 use crate::edit::{EditEntry, EditList};
 use crate::error::{Container, Error, Result};
 use crate::matroska::MatroskaTrack;
 use crate::metadata::{Chapter, ChapterSource};
 use crate::mp4::mux::bytes::invalid;
-use crate::mp4::mux::matroska::{spec_from_matroska, timescale_of};
+use crate::mp4::mux::matroska::{delay_ticks, spec_from_matroska, tick_factor, timescale_of};
 use crate::mp4::mux::metadata::rescale;
-use crate::mp4::mux::spec::{PacketFormat, PacketIn, SampleEntrySpec, TrackSpec};
+use crate::mp4::mux::spec::{AudioCodec, PacketFormat, PacketIn, SampleEntrySpec, TrackSpec};
 use crate::packet::Packet;
 use crate::track::Track;
 
@@ -144,7 +151,8 @@ impl StreamCopy {
         let timing = match &track.matroska {
             Some(mkv) => {
                 let timing = matroska_timing(track, mkv, &spec, packets)?;
-                spec.edit_list = trim_edit_list(&spec, packets, &timing, movie_timescale)?;
+                spec.edit_list =
+                    trim_edit_list(track, mkv, &spec, packets, &timing, movie_timescale)?;
                 timing
             }
             None => mp4_timing(track, packets)?,
@@ -239,7 +247,7 @@ fn matroska_timing(
     spec: &TrackSpec,
     packets: &[Packet],
 ) -> Result<Vec<PacketTiming>> {
-    let (_, factor) = timescale_of(track.timebase)?;
+    let factor = tick_factor(track, spec)?;
     let last = packets.len().checked_sub(1);
     for (n, packet) in packets.iter().enumerate() {
         match packet.discard_padding {
@@ -318,9 +326,35 @@ fn unsupported_padding(track: &Track, mkv: &MatroskaTrack, index: u64, kind: &st
     }
 }
 
-/// The edit that drops negative timestamps and the padding of the last
-/// packet. Empty when the track has neither.
+/// The media time the edit starts at, in track ticks: the `CodecDelay` of an
+/// AAC track. An Opus track starts at 0, since `dOps` holds its delay.
+fn edit_start(track: &Track, mkv: &MatroskaTrack, spec: &TrackSpec) -> Result<i64> {
+    let skips_in_edit = matches!(
+        spec.sample_entry,
+        SampleEntrySpec::Audio {
+            codec: AudioCodec::Aac,
+            ..
+        }
+    );
+    if !skips_in_edit || mkv.codec_delay == 0 {
+        return Ok(0);
+    }
+    delay_ticks(mkv.codec_delay, spec.timescale)
+        .and_then(|ticks| i64::try_from(ticks).ok())
+        .ok_or_else(|| {
+            invalid(format!(
+                "track {}: `CodecDelay` {} ns is no whole number of ticks at {} per second. Check \
+                 the `CodecDelay` against the sample rate",
+                track.id, mkv.codec_delay, spec.timescale
+            ))
+        })
+}
+
+/// The edit that drops negative timestamps, the `CodecDelay` of an AAC track
+/// and the padding of the last packet. Empty when the track has none.
 fn trim_edit_list(
+    track: &Track,
+    mkv: &MatroskaTrack,
     spec: &TrackSpec,
     packets: &[Packet],
     timing: &[PacketTiming],
@@ -330,7 +364,8 @@ fn trim_edit_list(
     let padded = packets
         .iter()
         .any(|packet| packet.discard_padding.is_some());
-    if !negative && !padded {
+    let start = edit_start(track, mkv, spec)?;
+    if !negative && !padded && start == 0 {
         return Ok(EditList::default());
     }
     let end = timing.iter().fold(0i64, |end, packet| {
@@ -344,6 +379,14 @@ fn trim_edit_list(
     if end <= 0 {
         return Ok(EditList::default());
     }
+    if start >= end {
+        return Err(invalid(format!(
+            "track {}: the `CodecDelay` of {start} ticks reaches the end of the track at {end} \
+             ticks, so the edit plays nothing. Check the `CodecDelay` and the block \
+             durations",
+            track.id
+        )));
+    }
     if movie_timescale == 0 {
         return Err(invalid(
             "`movie_timescale` is 0. Pass the value in `MuxOptions`".to_owned(),
@@ -352,8 +395,8 @@ fn trim_edit_list(
     Ok(EditList {
         movie_timescale,
         entries: vec![EditEntry {
-            segment_duration: rescale(end as u64, spec.timescale, movie_timescale),
-            media_time: 0,
+            segment_duration: rescale((end - start) as u64, spec.timescale, movie_timescale),
+            media_time: start,
             media_rate: EditEntry::NORMAL_RATE,
         }],
     })

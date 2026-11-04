@@ -148,3 +148,138 @@ fn ffprobe_reads_mkv_rotate90() {
 fn ffprobe_reads_mkv_opus_trim() {
     check_mkv("opus_trim.webm");
 }
+
+/// ffprobe's first-audio-stream `start_time` string and `start_pts` in
+/// nanoseconds. `None`, with a notice, when ffprobe is not on PATH.
+fn audio_start(path: &std::path::Path) -> Option<(String, i128)> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=start_time,start_pts,time_base",
+            "-of",
+            "default=noprint_wrappers=1",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|err| eprintln!("skipping: ffprobe does not run: {err}"))
+        .ok()?;
+    assert!(
+        output.status.success(),
+        "ffprobe failed on {}",
+        path.display()
+    );
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let field = |key: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(key).and_then(|v| v.strip_prefix('=')))
+            .unwrap_or_else(|| panic!("{}: ffprobe prints no {key}: {text}", path.display()))
+            .to_owned()
+    };
+    let (num, den) = field("time_base")
+        .split_once('/')
+        .map(|(n, d)| (n.parse::<i128>(), d.parse::<i128>()))
+        .map(|(n, d)| (n.unwrap_or(1), d.unwrap_or(1)))
+        .unwrap_or((1, 1));
+    let pts: i128 = field("start_pts").parse().unwrap_or(0);
+    Some((field("start_time"), pts * num * 1_000_000_000 / den))
+}
+
+/// The samples `ffmpeg -f null` style decoding yields for the first audio
+/// stream, counted from the raw 16-bit output.
+fn decoded_samples(path: &std::path::Path) -> Option<usize> {
+    let output = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-i"])
+        .arg(path)
+        .args(["-map", "0:a:0", "-f", "s16le", "-"])
+        .output()
+        .map_err(|err| eprintln!("skipping: ffmpeg does not run: {err}"))
+        .ok()?;
+    assert!(
+        output.status.success(),
+        "ffmpeg failed on {}",
+        path.display()
+    );
+    Some(output.stdout.len() / 2)
+}
+
+/// `ffmpeg -c copy` of `source` to MP4, as the second reference.
+fn ffmpeg_copy(source: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    let path = write_output(name, &[]);
+    let status = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-i"])
+        .arg(source)
+        .args(["-c", "copy"])
+        .arg(&path)
+        .status()
+        .map_err(|err| eprintln!("skipping: ffmpeg does not run: {err}"))
+        .ok()?;
+    assert!(
+        status.success(),
+        "ffmpeg -c copy failed on {}",
+        source.display()
+    );
+    Some(path)
+}
+
+/// The audio start and decoded length of the copy match the source and
+/// FFmpeg's own copy. A decoder drops whole frames at the end, so the sample
+/// counts agree within one frame of `frame` samples.
+fn check_audio_sync(name: &str, frame: usize) {
+    let Some(remux) = remux_mkv(name, false) else {
+        return;
+    };
+    let ours = write_output(&format!("sync_{name}.mp4"), &remux.bytes);
+    let Some(theirs) = ffmpeg_copy(&remux.fixture.path, &format!("ffcopy_{name}.mp4")) else {
+        return;
+    };
+    let source = &remux.fixture.path;
+    let (Some(src_start), Some(our_start), Some(ff_start)) = (
+        audio_start(source),
+        audio_start(&ours),
+        audio_start(&theirs),
+    ) else {
+        return;
+    };
+    assert_eq!(
+        our_start, src_start,
+        "{name}: start_time and start_pts against the source"
+    );
+    assert_eq!(
+        our_start, ff_start,
+        "{name}: start_time and start_pts against ffmpeg -c copy"
+    );
+    let (Some(src_count), Some(our_count), Some(ff_count)) = (
+        decoded_samples(source),
+        decoded_samples(&ours),
+        decoded_samples(&theirs),
+    ) else {
+        return;
+    };
+    assert!(
+        src_count.abs_diff(our_count) <= frame,
+        "{name}: {our_count} decoded samples against {src_count} in the source"
+    );
+    assert!(
+        ff_count.abs_diff(our_count) <= frame,
+        "{name}: {our_count} decoded samples against {ff_count} in ffmpeg -c copy"
+    );
+}
+
+#[test]
+fn audio_sync_matches_the_source_for_aac() {
+    check_audio_sync("h264_aac.mkv", 1024);
+}
+
+#[test]
+fn audio_sync_matches_the_source_for_opus() {
+    check_audio_sync("hevc_opus.mkv", 960);
+}
+
+#[test]
+fn audio_sync_matches_the_source_for_trimmed_opus() {
+    check_audio_sync("opus_trim.webm", 960);
+}

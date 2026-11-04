@@ -88,6 +88,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 - `TrackSpec` also carries timescale, language, matrix, `pasp`, `colour`, and an edit list. `colour` writes an `nclx` `colr` box into a built visual entry. A raw entry keeps its own `colr` box.
 - `TrackSpec::copy_from` builds a spec from an MP4 track.
 - `TrackSpec::copy_from` also takes a Matroska H.264, HEVC, AV1, AAC, Opus or `S_TEXT/UTF8` track. `StreamCopy::plan` adds packet timing and, for Matroska, the decode times and edit list MP4 needs.
+- For Matroska, the edit list drops negative timestamps and the padding of the last block. An AAC `CodecDelay` becomes the edit's `media_time`, and the segment lasts to the end of the last block less that delay. A delay that the Matroska tick cannot hold raises the track timescale to a multiple that holds it, so no timestamp rounds. A delay that no tick count matches within 1 ns is refused with an error that names Matroska. An Opus `CodecDelay` adds no edit, since `dOps` `pre_skip` already carries it and a second skip drops it twice.
 - Layout: `ftyp`, `mdat`, `moov`. `MuxOptions::faststart` moves `moov` to the front in a second pass on the same target. That pass adds the shift to every chunk offset.
 - Chunks last at most `MuxOptions::chunk_duration_ms` and interleave across tracks by decode time. `MuxOptions::max_buffer` bounds the bytes held back.
 - Sample tables: `stts`, `ctts`, `stsc`, `stsz`, `stss`, and `stco`.

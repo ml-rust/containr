@@ -101,11 +101,20 @@ fn check_track(name: &str, remux: &Remux, copied: &Copied) {
     let source = &copied.source;
     assert_eq!(ours.kind, source.kind, "{what}: kind");
     assert_eq!(ours.language, source.language, "{what}: language");
+    // The output counts in the source tick, or in a whole multiple of it when
+    // an AAC `CodecDelay` needs finer ticks.
+    let source_rate = source.timebase.den / source.timebase.num;
     assert_eq!(
         ours.timebase,
-        Timebase::from_timescale(source.timebase.den / source.timebase.num),
+        Timebase::from_timescale(copied.plan.spec.timescale),
         "{what}: timescale"
     );
+    assert_eq!(
+        copied.plan.spec.timescale % source_rate,
+        0,
+        "{what}: timescale is a multiple of the source tick rate"
+    );
+    let factor = i64::from(copied.plan.spec.timescale / source_rate);
     assert_eq!(ours.matrix, expected_matrix(copied), "{what}: matrix");
     assert_eq!(tags(&ours.metadata), tags(&source.metadata), "{what}: tags");
     check_config(&what, copied, ours.codec_config());
@@ -137,7 +146,7 @@ fn check_track(name: &str, remux: &Remux, copied: &Copied) {
     assert_eq!(timing.len(), copied.packets.len(), "{what}: timing count");
     for (n, ((mine, theirs), planned)) in mine.iter().zip(&copied.packets).zip(timing).enumerate() {
         let at = format!("{what} packet {n}");
-        assert_eq!(mine.pts, theirs.pts, "{at}: pts");
+        assert_eq!(mine.pts, theirs.pts * factor, "{at}: pts");
         assert_eq!(mine.dts, Some(planned.dts), "{at}: dts");
         assert_eq!(mine.duration, planned.duration, "{at}: duration");
         assert_eq!(mine.sync, theirs.sync, "{at}: sync");
@@ -151,21 +160,29 @@ fn check_track(name: &str, remux: &Remux, copied: &Copied) {
             assert_eq!(my_bytes, their_bytes, "{at}: bytes");
         }
     }
+    let delay_ns = mkv.codec_delay;
+    let rate = u128::from(copied.plan.spec.timescale);
+    // An AAC edit skips the delay. An Opus edit starts at 0, since `dOps`
+    // holds the delay.
+    let start = if mkv.codec_id == "A_AAC" {
+        (u128::from(delay_ns) * rate + 500_000_000) / 1_000_000_000
+    } else {
+        0
+    };
     let delayed = copied.packets.iter().any(|p| p.pts < 0);
     let padded = copied.packets.iter().any(|p| p.discard_padding.is_some());
-    if delayed || padded {
+    if delayed || padded || start > 0 {
         let end = timing
             .iter()
             .map(|t| t.pts + t.duration.unwrap_or(0) as i64)
             .max()
             .expect("the track has packets");
-        let want = u128::from(end as u64) * u128::from(remux.movie_timescale)
-            / u128::from(source.timebase.den / source.timebase.num);
+        let want = (u128::from(end as u64) - start) * u128::from(remux.movie_timescale) / rate;
         assert_eq!(
             ours.edit_list.entries,
             vec![EditEntry {
                 segment_duration: want as u64,
-                media_time: 0,
+                media_time: start as i64,
                 media_rate: EditEntry::NORMAL_RATE,
             }],
             "{what}: edit list"
@@ -173,6 +190,34 @@ fn check_track(name: &str, remux: &Remux, copied: &Copied) {
     } else {
         assert!(ours.edit_list.is_empty(), "{what}: edit list");
     }
+    if mkv.audio.is_some() {
+        check_first_sample(&what, copied, &ours);
+    }
+}
+
+/// The presentation time of the first audio sample, in nanoseconds, matches
+/// the source. A Matroska reader shows a block at its timestamp minus
+/// `CodecDelay`. In MP4 the edit start and the `dOps` `pre_skip` both move the
+/// first sample back. The integer divisions allow 2 ns.
+fn check_first_sample(what: &str, copied: &Copied, ours: &containr::Track) {
+    let source = &copied.source;
+    let mkv = source.matroska.as_ref().expect("a Matroska track");
+    let first = copied.packets.first().expect("the track has packets");
+    let source_rate = i128::from(source.timebase.den / source.timebase.num);
+    let want = i128::from(first.pts) * 1_000_000_000 / source_rate - i128::from(mkv.codec_delay);
+
+    let rate = i128::from(ours.timebase.den);
+    let edit = ours.edit_list.entries.first().map_or(0, |e| e.media_time);
+    let planned = copied.plan.timing().first().expect("the track has timing");
+    let mut got = (i128::from(planned.pts) - i128::from(edit)) * 1_000_000_000 / rate;
+    if let Some(CodecConfig::Opus(dops)) = ours.codec_config() {
+        let pre_skip = i128::from(u16::from_be_bytes([dops[2], dops[3]]));
+        got -= pre_skip * 1_000_000_000 / 48_000;
+    }
+    assert!(
+        (got - want).abs() <= 2,
+        "{what}: the first sample presents at {got} ns, the source at {want} ns"
+    );
 }
 
 fn check_chapters(name: &str, remux: &Remux) {

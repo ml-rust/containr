@@ -33,6 +33,7 @@ Each release must have a non-empty section here before it can be tagged — `.gi
 
 ### Changed
 
+- MKV to MP4 stream copy of an AAC track with a `CodecDelay` now writes an edit that skips the delay. Before, the edit list was empty, so MP4 players played the priming samples and audio ran late against video (about 21 ms for 1024 samples at 48 kHz). The edit starts at the delay in track ticks and lasts to the end of the last block less the delay, in the movie timescale. A `DiscardPadding` end trim shares the same edit. When the Matroska tick cannot hold the delay, the track timescale rises to a whole multiple that does, and every timestamp scales by that whole factor. A delay that no tick count matches within 1 ns is refused with an error that names Matroska. An Opus `CodecDelay` still adds no edit, because `dOps` `pre_skip` carries it.
 - `VideoInfo` and `MatroskaVideo` gain a `colour` field, so a struct literal of either needs it. The `Colour` element stays in `MatroskaVideo::extra`.
 - `StreamCopy::timestamp_scale` starts from the plans' own scales, so a rounded plan keeps the scale it names. An exact set of plans gets the value it got before.
 - MP4 to Matroska stream copy maps a QuickTime Macintosh language code to its ISO 639-2/T code. It wrote `und` for every such code. `0x7FFF` and a code with no table entry still write `und`.

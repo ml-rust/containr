@@ -10,6 +10,11 @@
 //! The media timescale keeps the Matroska tick exact: `TimestampScale`
 //! reduced over one second. When the reduced tick is not one over an
 //! integer, timestamps scale up by a whole factor.
+//!
+//! An AAC track with a `CodecDelay` needs an edit that skips the delay in
+//! whole ticks. When the Matroska tick cannot hold it, the timescale rises to
+//! the least common multiple of the tick rate and the audio sample rate. Every
+//! timestamp then scales up by a whole factor, so none rounds.
 
 use crate::error::{Container, Error, Result};
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo};
@@ -47,6 +52,56 @@ pub(crate) fn timescale_of(timebase: Timebase) -> Result<(u32, u64)> {
         ))
     })?;
     Ok((timescale, u64::from(timebase.num) / divisor))
+}
+
+/// `delay` nanoseconds as a whole number of ticks at `timescale` per second.
+///
+/// Matroska stores whole nanoseconds, so a delay rounded from a tick count
+/// still matches. `None` when no tick count lies within 1 ns of `delay`.
+pub(crate) fn delay_ticks(delay: u64, timescale: u32) -> Option<u64> {
+    let scaled = u128::from(delay) * u128::from(timescale);
+    let ticks = (scaled + 500_000_000) / 1_000_000_000;
+    let error = (ticks * 1_000_000_000).abs_diff(scaled);
+    if error < u128::from(timescale) {
+        u64::try_from(ticks).ok()
+    } else {
+        None
+    }
+}
+
+/// The whole factor from a Matroska tick to the ticks of `spec`. It is the
+/// factor of [`timescale_of`] times the rise of the spec's timescale.
+pub(crate) fn tick_factor(track: &Track, spec: &TrackSpec) -> Result<u64> {
+    let (base, factor) = timescale_of(track.timebase)?;
+    let rise = spec.timescale.checked_div(base).unwrap_or(1);
+    factor.checked_mul(u64::from(rise)).ok_or_else(|| {
+        invalid(format!(
+            "track {}: the tick factor {factor} times {rise} overflows 64 bits",
+            track.id
+        ))
+    })
+}
+
+/// The timescale of an AAC track: `base`, or a multiple of it that holds the
+/// `CodecDelay` in whole ticks.
+fn delay_timescale(track: &Track, mkv: &MatroskaTrack, sample_rate: u32, base: u32) -> Result<u32> {
+    if mkv.codec_delay == 0 || delay_ticks(mkv.codec_delay, base).is_some() {
+        return Ok(base);
+    }
+    let divisor = gcd(u64::from(base), u64::from(sample_rate));
+    let lifted = (u64::from(base) / divisor.max(1))
+        .checked_mul(u64::from(sample_rate))
+        .and_then(|rate| u32::try_from(rate).ok())
+        .filter(|&rate| delay_ticks(mkv.codec_delay, rate).is_some());
+    lifted.ok_or_else(|| {
+        refuse(format!(
+            "track {} with `CodecDelay` {} ns: that time is no whole number of ticks at {base} \
+             Hz or at a multiple of it that holds the {sample_rate} Hz sample rate. MP4 skips \
+             the delay with an edit list in whole ticks. Check the `CodecDelay` against the \
+             sample rate",
+            track.id, mkv.codec_delay
+        ))
+    })
 }
 
 /// The spec for a Matroska track, or the refusal that names Matroska.
@@ -96,10 +151,18 @@ pub(crate) fn spec_from_matroska(track: &Track, mkv: &MatroskaTrack) -> Result<T
             )));
         }
     };
+    if let SampleEntrySpec::Audio {
+        codec: AudioCodec::Aac,
+        sample_rate,
+        ..
+    } = &spec.sample_entry
+    {
+        spec.timescale = delay_timescale(track, mkv, *sample_rate, timescale)?;
+    }
     spec.language = mdhd_language(track.language);
     spec.enabled = mkv.enabled;
     spec.metadata = track.metadata.clone();
-    spec.default_duration = default_duration(mkv, timescale)?;
+    spec.default_duration = default_duration(mkv, spec.timescale)?;
     Ok(spec)
 }
 
@@ -303,6 +366,18 @@ mod tests {
             Some((1_000_000_000, 3))
         );
         assert!(timescale_of(Timebase { num: 0, den: 1 }).is_err());
+    }
+
+    #[test]
+    fn delay_ticks_accepts_a_rounded_tick_count_only() {
+        // 1024 samples at 48 kHz, rounded down and to nearest.
+        assert_eq!(delay_ticks(21_333_333, 48_000), Some(1024));
+        assert_eq!(delay_ticks(21_333_334, 48_000), Some(1024));
+        assert_eq!(delay_ticks(6_500_000, 48_000), Some(312));
+        assert_eq!(delay_ticks(21_000_000, 1000), Some(21));
+        assert_eq!(delay_ticks(21_333_333, 1000), None);
+        assert_eq!(delay_ticks(21_400_000, 48_000), None);
+        assert_eq!(delay_ticks(0, 1000), Some(0));
     }
 
     #[test]
