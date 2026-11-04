@@ -2,10 +2,10 @@
 
 # containr
 
-<h3>Media containers for Rust. Nothing is decoded.</h3>
+<h3>Media containers in Rust. Packets in, packets out, nothing decoded.</h3>
 
 <p>
-containr reads MP4/MOV and Matroska/WebM containers: boxes and EBML elements, sample tables and blocks, packets with integer timestamps, track metadata, chapters, attachments, and raw edit lists. It writes MP4/MOV with stream copy. Matroska/WebM muxing is a roadmap item. It never decodes or encodes media. <a href="https://github.com/ml-rust/vidr">vidr</a> (video) and <a href="https://github.com/ml-rust/voxr">voxr</a> (audio) build on it.
+Read MP4, MOV, Matroska, and WebM, and write MP4 and MOV with stream copy. Timestamps stay integers and edit lists stay raw.
 </p>
 
 <p>
@@ -38,9 +38,15 @@ containr reads MP4/MOV and Matroska/WebM containers: boxes and EBML elements, sa
 
 </div>
 
+containr holds the container layer of the ml-rust media stack. It parses boxes and EBML elements into tracks, packets, metadata, chapters, and attachments, and it writes them back. [vidr](https://github.com/ml-rust/vidr) (video) and [voxr](https://github.com/ml-rust/voxr) (audio) are its intended users, and neither depends on it yet. Codecs live in those crates, so containr never decodes or encodes media.
+
+```text
+file → demux → packets with integer timestamps → your codec, or mux → file
+```
+
 ## Status
 
-In development. No release exists yet.
+In development. No release exists yet. [AGENTS.md](AGENTS.md) holds the implemented-vs-roadmap table.
 
 | Capability                                                                                                                       | Status      |
 | -------------------------------------------------------------------------------------------------------------------------------- | ----------- |
@@ -77,14 +83,22 @@ Each container is a Cargo feature. The default build holds the shared types only
 ## MP4/MOV mux
 
 - `Muxer::new`, `add_track`, `set_metadata`, `set_chapters`, `write_packet`, `finish`. The target implements `Write` and `Seek`, and `Read` for `finish`, since faststart reads `mdat` back.
-- `TrackSpec` carries the sample entry as raw stream-copy bytes, or a build from `avcC`, `hvcC`, `av1C`, `esds`, or `dOps`, plus timescale, language, matrix, `pasp`, and an edit list.
-- `TrackSpec::copy_from` builds a spec from an MP4 track, or from a Matroska H.264, HEVC, AV1, AAC, Opus or `S_TEXT/UTF8` track. `StreamCopy::plan` adds packet timing and, for Matroska, the decode times and edit list MP4 needs.
-- Layout: `ftyp`, `mdat`, `moov`. `MuxOptions::faststart` moves `moov` to the front in place, in a second pass on the same target, and adds the shift to every chunk offset.
+- `TrackSpec` carries the sample entry as raw stream-copy bytes, or builds it from `avcC`, `hvcC`, `av1C`, `esds`, or `dOps`.
+- `TrackSpec` also carries timescale, language, matrix, `pasp`, and an edit list.
+- `TrackSpec::copy_from` builds a spec from an MP4 track.
+- `TrackSpec::copy_from` also takes a Matroska H.264, HEVC, AV1, AAC, Opus or `S_TEXT/UTF8` track. `StreamCopy::plan` adds packet timing and, for Matroska, the decode times and edit list MP4 needs.
+- Layout: `ftyp`, `mdat`, `moov`. `MuxOptions::faststart` moves `moov` to the front in a second pass on the same target. That pass adds the shift to every chunk offset.
 - Chunks last at most `MuxOptions::chunk_duration_ms` and interleave across tracks by decode time. `MuxOptions::max_buffer` bounds the bytes held back.
-- Sample tables: `stts`, `ctts` (version 1 with `cslg` for a negative offset), `stsc`, `stsz`, `stss`, and `stco`, or `co64` past 4 GiB. The last sample's duration comes from its packet, so the track's total duration is exact.
-- Refused, each by name: a codec MP4 cannot hold (the error names Matroska), `dts` out of order, a composition offset `ctts` cannot store, a second sample description, a last packet with no duration and no default.
+- Sample tables: `stts`, `ctts`, `stsc`, `stsz`, `stss`, and `stco`.
+- `co64` replaces `stco` past 4 GiB. Version 1 `ctts` with `cslg` holds a negative offset. The last sample's duration comes from its packet, so the track's total duration is exact.
+- Refused, each by name:
+  - a codec MP4 cannot hold (the error names Matroska)
+  - `dts` out of order
+  - a composition offset `ctts` cannot store
+  - a second sample description
+  - a last packet with no duration and no default
 - Composition offsets range from -2^31 to 2^31 - 1, since readers treat `ctts` offsets as signed.
-- Known limits: stream copy drops MP4 `sgpd` and `sbgp` sample-group boxes. Matroska attachments have no MP4 form, so the muxer never sees them. A caller that copies a Matroska file to MP4 must check `Demuxer::attachments()` and refuse the copy, naming MKV as the container that holds attachments.
+- Known limits: stream copy drops MP4 `sgpd` and `sbgp` sample-group boxes. Matroska attachments have no MP4 form, so the muxer never sees them. A caller that copies Matroska to MP4 must check `Demuxer::attachments()`. When it lists any, refuse the copy and name MKV as the container that holds them.
 
 ## MKV/WebM demux
 
@@ -102,7 +116,15 @@ Each container is a Cargo feature. The default build holds the shared types only
 
 ## Usage
 
-```rust
+No release exists yet, so depend on the repository:
+
+```bash
+cargo add containr --git https://github.com/ml-rust/containr --features mp4,mkv
+```
+
+Read an MP4 or MOV file:
+
+```rust,no_run
 use containr::mp4::Demuxer;
 
 fn main() -> Result<(), containr::Error> {
@@ -121,7 +143,7 @@ fn main() -> Result<(), containr::Error> {
 
 `containr::mkv::Demuxer` has the same shape for Matroska and WebM:
 
-```rust
+```rust,no_run
 use containr::mkv::Demuxer;
 
 fn main() -> Result<(), containr::Error> {
@@ -134,6 +156,51 @@ fn main() -> Result<(), containr::Error> {
         let bytes = demuxer.read_packet(&packet)?;
         println!("track {} pts {} size {}", packet.track_id, packet.pts, bytes.len());
     }
+    Ok(())
+}
+```
+
+Copy an MP4 file into a new one, with `moov` at the front. The muxer rebuilds the chapter track from `set_chapters`, so the copy skips it:
+
+```rust,no_run
+use std::collections::HashMap;
+use std::fs::File;
+
+use containr::mp4::{Demuxer, MuxOptions, Muxer, StreamCopy};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut input = Demuxer::open_path("input.mp4")?;
+    let target = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("output.mp4")?;
+    let options = MuxOptions {
+        faststart: true,
+        ..MuxOptions::default()
+    };
+    let movie_timescale = options.movie_timescale;
+    let mut output = Muxer::new(target, options)?;
+
+    let mut plans = HashMap::new();
+    for track in input.tracks().iter().filter(|track| !track.chapter_track) {
+        let packets = input.track_packets(track.id)?.collect::<Result<Vec<_>, _>>()?;
+        let plan = StreamCopy::plan(track, &packets, movie_timescale)?;
+        let id = output.add_track(plan.spec.clone())?;
+        plans.insert(track.id, (plan, id));
+    }
+    output.set_metadata(input.metadata().to_vec())?;
+    output.set_chapters(StreamCopy::chapters(input.chapters()))?;
+    for packet in input.packets() {
+        let packet = packet?;
+        let Some((plan, id)) = plans.get(&packet.track_id) else {
+            continue;
+        };
+        let data = input.read_packet(&packet)?;
+        output.write_packet(*id, &plan.packet(&packet, &data)?)?;
+    }
+    output.finish()?;
     Ok(())
 }
 ```

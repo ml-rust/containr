@@ -33,3 +33,8 @@ pub use track::{
     AudioInfo, CodecConfig, FourCc, Language, PixelAspect, SampleEntry, Timebase, Track, TrackKind,
     TrackReference, VideoInfo,
 };
+
+/// Compiles the README examples as doctests.
+#[cfg(all(doctest, feature = "mp4", feature = "mkv"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

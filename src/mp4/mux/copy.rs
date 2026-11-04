@@ -15,6 +15,7 @@
 use crate::edit::{EditEntry, EditList};
 use crate::error::{Container, Error, Result};
 use crate::matroska::MatroskaTrack;
+use crate::metadata::{Chapter, ChapterSource};
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::matroska::{spec_from_matroska, timescale_of};
 use crate::mp4::mux::metadata::rescale;
@@ -149,6 +150,23 @@ impl StreamCopy {
             None => mp4_timing(track, packets)?,
         };
         Ok(Self { spec, timing })
+    }
+
+    /// The chapters to pass to [`Muxer::set_chapters`] for a demuxer's
+    /// `chapters()`.
+    ///
+    /// A file can hold one list twice, in `chpl` and in a chapter track. The
+    /// muxer writes each chapter in both forms, so this keeps one copy of the
+    /// list: the chapter track's, when the file has one.
+    ///
+    /// [`Muxer::set_chapters`]: crate::mp4::Muxer::set_chapters
+    pub fn chapters(chapters: &[Chapter]) -> Vec<Chapter> {
+        let from_track = |chapter: &&Chapter| matches!(chapter.source, ChapterSource::Track(_));
+        if chapters.iter().any(|chapter| from_track(&chapter)) {
+            chapters.iter().filter(from_track).cloned().collect()
+        } else {
+            chapters.to_vec()
+        }
     }
 
     /// The timing of every packet, in decode order.

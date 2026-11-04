@@ -4,7 +4,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 use containr::mp4::{Brand, Demuxer, MuxOptions, Muxer, StreamCopy, TrackId};
-use containr::{Chapter, ChapterSource, Error, FourCc, Packet, Result, Track};
+use containr::{Error, FourCc, Packet, Result, Track};
 
 use crate::common::{self, Fixture};
 
@@ -88,7 +88,7 @@ pub fn remux_mp4(name: &str, faststart: bool) -> Option<Remux> {
     ok(name, muxer.set_metadata(input.metadata().to_vec()));
     ok(
         name,
-        muxer.set_chapters(chapters_to_write(input.chapters())),
+        muxer.set_chapters(StreamCopy::chapters(input.chapters())),
     );
     for packet in input.packets() {
         let packet = ok(name, packet);
@@ -157,21 +157,6 @@ pub fn remux_mkv(name: &str, faststart: bool) -> Option<Remux> {
         refused,
         movie_timescale,
     })
-}
-
-/// One set of chapters: an MP4 file repeats them in `chpl` and in a chapter
-/// track. The track's set has durations, so it wins.
-pub fn chapters_to_write(chapters: &[Chapter]) -> Vec<Chapter> {
-    let from_track: Vec<Chapter> = chapters
-        .iter()
-        .filter(|chapter| matches!(chapter.source, ChapterSource::Track(_)))
-        .cloned()
-        .collect();
-    if from_track.is_empty() {
-        chapters.to_vec()
-    } else {
-        from_track
-    }
 }
 
 /// Write `bytes` to `name` in the gitignored fixture directory.
