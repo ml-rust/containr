@@ -42,7 +42,11 @@ Update this table in the same change that implements a capability.
 
 ## Commands
 
-- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo clippy --all-targets --features <set> -- -D warnings`, for no features, `mp4`, `mkv`, and `mp4,mkv`
+- `python3 tests/fixtures/gen_mp4.py` and `python3 tests/fixtures/gen_mkv.py`, before the tests
 - `cargo nextest run --all-features --no-fail-fast`
+- `cargo test --all-features --doc`, because nextest skips doctests
+- `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
 - `cargo fmt --all --check`
 - `cargo deny --exclude-dev check`
+- `shellcheck scripts/ci/*.sh`

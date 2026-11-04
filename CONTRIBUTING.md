@@ -4,12 +4,19 @@
 
 Open an issue before you start anything non-trivial. Discuss design on [Discord](https://discord.gg/jBhFk9kHPg).
 
+## Prerequisites
+
+- Rust 1.95 or newer.
+- `cargo-deny` and `shellcheck` for the checks.
+- `python3`, `ffmpeg`, and `ffprobe` to generate fixtures.
+
 ## Build and test
 
-Run these commands from the repository root. They match `.github/workflows/test.yml`.
+Run these commands from the repository root.
 
 ```bash
 cargo fmt --all --check
+RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 cargo clippy --all-targets -- -D warnings
 cargo clippy --all-targets --features mp4 -- -D warnings
 cargo clippy --all-targets --features mkv -- -D warnings
@@ -21,19 +28,24 @@ cargo deny --exclude-dev check
 shellcheck scripts/ci/*.sh
 ```
 
+CI also checks the library on the MSRV in `Cargo.toml`.
+
 ## Test fixtures
 
-Media files never enter the repository. The tests read fixtures that two scripts generate:
+Media files never enter the repository. The two scripts above generate fixtures into `tests/fixtures/mp4/` and `tests/fixtures/mkv/`, which git ignores.
 
-```bash
-python3 tests/fixtures/gen_mp4.py
-python3 tests/fixtures/gen_mkv.py
-```
+| Output | Contents |
+| ------ | -------- |
+| `<name>.mp4`, `<name>.mov`, `<name>.mkv`, `<name>.webm` | The fixture |
+| `<name>.probe.json` | The ffprobe reference data the tests compare against |
 
-The scripts need `ffmpeg` and `ffprobe` on `PATH`, built with libx264, libx265 and libopus. gen_mkv.py also needs libvpx-vp9. It skips the AV1 fixture without an AV1 encoder, and the attachment fixture without a TrueType font. gen_mp4.py skips its VP9 fixture without libvpx-vp9, and its AV1 fixture without an AV1 encoder. The scripts write into `tests/fixtures/mp4/` and `tests/fixtures/mkv/`, which git ignores:
+Both scripts need `ffmpeg` and `ffprobe` on `PATH`, with libx264, libx265, and libopus. This table lists the other encoders:
 
-- `<name>.mp4`, `<name>.mov`, `<name>.mkv` or `<name>.webm`: the fixture.
-- `<name>.probe.json`: the ffprobe reference data the tests compare against.
+| Missing | `gen_mp4.py` | `gen_mkv.py` |
+| ------- | ------------ | ------------ |
+| libvpx-vp9 | Skips its VP9 fixture | Required |
+| An AV1 encoder (libsvtav1, libaom-av1, or librav1e) | Skips its AV1 fixture | Skips its AV1 fixture |
+| A TrueType font | Not needed | Skips the attachment fixture |
 
 A test whose fixture is missing prints a notice and skips. The synthetic and corruption tests build their input in memory and always run.
 
@@ -51,3 +63,9 @@ A test whose fixture is missing prints a notice and skips. The synthetic and cor
 - Add tests for every behavior change.
 - Add a line to `CHANGELOG.md` for every user-visible change.
 - Run the commands in [Build and test](#build-and-test) before you open the pull request.
+
+## Releases
+
+- Each release needs a non-empty `## [X.Y.Z]` section in `CHANGELOG.md`.
+- A pushed `v*` tag runs the `Release Prepare` workflow. `Release Validate` refuses a tag whose version has no entry.
+- The manual `Release` workflow publishes. The GitHub Release body is the changelog section for that version.
