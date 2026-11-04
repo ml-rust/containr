@@ -203,6 +203,7 @@ fn cues_point_at_keyframes_of_the_video_track() {
         crop: [0; 4],
         interlaced: 0,
         projection: None,
+        colour: None,
         extra: Vec::new(),
     });
     video.matroska.default_duration = Some(40_000_000);

@@ -12,5 +12,5 @@ mod file;
 #[allow(unused_imports)]
 pub use file::{
     ATTACHMENT, ATTACHMENT_UID, AUDIO, AUDIO_UID, CODEC_PRIVATE, Synth, VIDEO, VIDEO_UID, file,
-    packet_bytes,
+    file_with_colour, packet_bytes,
 };

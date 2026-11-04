@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::colour::ContainerColour;
 use crate::edit::EditList;
 use crate::mac_language::macintosh_iso639;
 use crate::matroska::MatroskaTrack;
@@ -231,6 +232,10 @@ pub struct VideoInfo {
     pub height: u16,
     /// The `pasp` box, when present.
     pub pixel_aspect: Option<PixelAspect>,
+    /// The first `colr` box that gives H.273 values: `nclx` or QuickTime
+    /// `nclc`. `None` when the entry has no such box. A `prof` or `rICC`
+    /// box gives no H.273 values.
+    pub colour: Option<ContainerColour>,
 }
 
 /// Facts from an audio sample entry.
@@ -348,6 +353,15 @@ impl Track {
     /// Visual facts of the first sample entry.
     pub fn video(&self) -> Option<&VideoInfo> {
         self.sample_entry().and_then(|entry| entry.video.as_ref())
+    }
+
+    /// The container colour tags of a video track: the `colr` box of the
+    /// first sample entry, or the Matroska `Video/Colour` element.
+    pub fn colour(&self) -> Option<ContainerColour> {
+        match &self.matroska {
+            Some(mkv) => mkv.video.as_ref().and_then(|video| video.colour),
+            None => self.video().and_then(|video| video.colour),
+        }
     }
 
     /// Audio facts of the first sample entry.

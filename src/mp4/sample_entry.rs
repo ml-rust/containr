@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use crate::mp4::boxes::{Children, RawBox};
+use crate::mp4::colour::parse_colr;
 use crate::track::{AudioInfo, CodecConfig, PixelAspect, SampleEntry, TrackKind, VideoInfo};
 
 /// Bytes of the SampleEntry base: 6 reserved, then `data_reference_index`.
@@ -71,10 +72,16 @@ fn parse_entry(entry: &RawBox<'_>, path: &str, kind: TrackKind) -> Result<Sample
                 width,
                 height,
                 pixel_aspect: None,
+                colour: None,
             };
             for child in entry.children(VISUAL_LEN, path)? {
                 let child = child?;
-                if &child.kind.0 == b"pasp" {
+                if &child.kind.0 == b"colr" {
+                    let child_path = format!("{path}/colr");
+                    if let Some(colour) = parse_colr(&child, &child_path)? {
+                        video.colour.get_or_insert(colour);
+                    }
+                } else if &child.kind.0 == b"pasp" {
                     let child_path = format!("{path}/pasp");
                     let mut pasp = child.reader(&child_path);
                     video.pixel_aspect = Some(PixelAspect {
@@ -212,6 +219,7 @@ fn codec_config(child: &RawBox<'_>) -> Option<CodecConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colour::ContainerColour;
     use crate::track::FourCc;
 
     fn entry(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
@@ -264,6 +272,44 @@ mod tests {
             })
         );
         assert_eq!(first.raw.len(), 8 + VISUAL_LEN + children.len());
+    }
+
+    #[test]
+    fn colr_gives_colour_and_the_first_tagged_box_wins() {
+        let mut children = entry(b"colr", b"prof\x01");
+        children.extend(entry(
+            b"colr",
+            &[b'n', b'c', b'l', b'x', 0, 9, 0, 16, 0, 9, 0x80],
+        ));
+        children.extend(entry(b"colr", &[b'n', b'c', b'l', b'c', 0, 1, 0, 1, 0, 1]));
+        let bytes = stsd(&[visual(96, 64, &children)], 1);
+        let entries = parse(&bytes, TrackKind::Video).expect("the box is well formed");
+        let video = entries[0].video.expect("a visual entry yields video facts");
+        assert_eq!(
+            video.colour,
+            Some(ContainerColour {
+                primaries: Some(9),
+                transfer: Some(16),
+                matrix: Some(9),
+                full_range: Some(true),
+            })
+        );
+    }
+
+    #[test]
+    fn icc_only_colr_leaves_colour_none() {
+        let bytes = stsd(&[visual(96, 64, &entry(b"colr", b"rICC"))], 1);
+        let entries = parse(&bytes, TrackKind::Video).expect("the box is well formed");
+        assert_eq!(entries[0].video.and_then(|video| video.colour), None);
+    }
+
+    #[test]
+    fn short_colr_is_malformed() {
+        let bytes = stsd(&[visual(96, 64, &entry(b"colr", b"nclx\x00\x09"))], 1);
+        assert!(matches!(
+            parse(&bytes, TrackKind::Video),
+            Err(Error::Malformed { .. })
+        ));
     }
 
     #[test]

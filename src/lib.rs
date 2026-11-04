@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod colour;
 pub mod edit;
 pub mod error;
 pub mod matroska;
@@ -23,6 +24,7 @@ pub mod mkv;
 #[cfg(feature = "mp4")]
 pub mod mp4;
 
+pub use colour::ContainerColour;
 pub use edit::{EditEntry, EditList};
 pub use error::{Container, Error, Result};
 pub use metadata::{

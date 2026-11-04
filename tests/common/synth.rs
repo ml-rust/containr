@@ -74,7 +74,7 @@ fn stsz(sizes: &[u32]) -> Vec<u8> {
     full(b"stsz", 0, 0, &body)
 }
 
-fn video_trak(chunks: &[u32]) -> Vec<u8> {
+fn video_trak(chunks: &[u32], colrs: &[&[u8]]) -> Vec<u8> {
     let mut entry = vec![0, 0, 0, 0, 0, 0, 0, 1];
     entry.extend([0; 16]);
     entry.extend([0, 96, 0, 64]);
@@ -84,6 +84,9 @@ fn video_trak(chunks: &[u32]) -> Vec<u8> {
     entry.extend([0, 0x18, 0xFF, 0xFF]);
     entry.extend(bx(b"avcC", &AVCC));
     entry.extend(bx(b"pasp", &be32(&[4, 3])));
+    for colr in colrs {
+        entry.extend(bx(b"colr", colr));
+    }
     let mut stsd = be32(&[1]);
     stsd.extend(bx(b"avc1", &entry));
 
@@ -127,7 +130,7 @@ fn audio_trak(chunks: &[u32]) -> Vec<u8> {
     bx(b"trak", &body)
 }
 
-fn moov(video_chunks: &[u32], audio_chunks: &[u32]) -> Vec<u8> {
+fn moov(video_chunks: &[u32], audio_chunks: &[u32], colrs: &[&[u8]]) -> Vec<u8> {
     let mut mvhd = be32(&[0, 0, MOVIE_TIMESCALE, 600, 0x10000]);
     mvhd.extend([1, 0, 0, 0]);
     mvhd.extend([0; 8]);
@@ -135,7 +138,7 @@ fn moov(video_chunks: &[u32], audio_chunks: &[u32]) -> Vec<u8> {
     mvhd.extend([0; 24]);
     mvhd.extend(be32(&[3]));
     let mut body = full(b"mvhd", 0, 0, &mvhd);
-    body.extend(video_trak(video_chunks));
+    body.extend(video_trak(video_chunks, colrs));
     body.extend(audio_trak(audio_chunks));
     let mut ilst_item = be32(&[1, 0]);
     ilst_item.extend(b"synth title");
@@ -169,13 +172,19 @@ fn sample_bytes(track: u32, index: u32, size: u32) -> Vec<u8> {
 
 /// Build the movie. Returns the file bytes and the packets in file order.
 pub fn movie(moov_first: bool) -> (Vec<u8>, Vec<Packet>) {
+    movie_with_colr(moov_first, &[])
+}
+
+/// Build the movie with one `colr` box per body in `colrs`, in order, in
+/// the video sample entry after `pasp`.
+pub fn movie_with_colr(moov_first: bool, colrs: &[&[u8]]) -> (Vec<u8>, Vec<Packet>) {
     let ftyp = bx(
         b"ftyp",
         &[
             b'i', b's', b'o', b'm', 0, 0, 2, 0, b'i', b's', b'o', b'm', b'm', b'p', b'4', b'1',
         ],
     );
-    let moov_len = moov(&[0; 3], &[0; 2]).len();
+    let moov_len = moov(&[0; 3], &[0; 2], colrs).len();
     let mdat_start = ftyp.len() + if moov_first { moov_len } else { 0 };
     let mut data = Vec::new();
     let mut packets = Vec::new();
@@ -227,7 +236,7 @@ pub fn movie(moov_first: bool) -> (Vec<u8>, Vec<Packet>) {
             data.extend(sample_bytes(track, index, size));
         }
     }
-    let moov = moov(&video_chunks, &audio_chunks);
+    let moov = moov(&video_chunks, &audio_chunks, colrs);
     let mdat = bx(b"mdat", &data);
     let mut out = ftyp;
     if moov_first {

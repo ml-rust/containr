@@ -73,6 +73,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 - Each track carries its id, kind and handler type, timescale, duration, and language.
 - Each sample entry keeps its raw bytes for stream copy, plus `avcC`, `hvcC`, `av1C`, `vpcC`, `esds` or `dOps`.
 - Video tracks carry width, height, the `pasp` ratio, and the raw `tkhd` matrix. Audio tracks carry channels and sample rate.
+- `VideoInfo::colour` holds the H.273 tags of a `colr` box: `nclx` with its full-range bit, or QuickTime `nclc` with no range. `prof` and `rICC` give no H.273 values, so `colour` stays `None` unless another `colr` box gives `nclx`. A code point above 255 is an error. `Track::colour` gives the value for either container.
 - Packets carry `dts`, `pts` (signed `ctts` included), duration, sync flag, byte offset, and size.
 - Sample tables: `stts`, `ctts`, `stsc`, `stsz`, `stz2`, `stco`, `co64`, `stss`. They expand one sample at a time, so memory tracks the table entries, not the sample count.
 - Edit lists come raw, with the movie timescale. The caller applies them.
@@ -84,7 +85,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 
 - `Muxer::new`, `add_track`, `set_metadata`, `set_chapters`, `write_packet`, `finish`. The target implements `Write` and `Seek`, and `Read` for `finish`, since faststart reads `mdat` back.
 - `TrackSpec` carries the sample entry as raw stream-copy bytes, or builds it from `avcC`, `hvcC`, `av1C`, `esds`, or `dOps`.
-- `TrackSpec` also carries timescale, language, matrix, `pasp`, and an edit list.
+- `TrackSpec` also carries timescale, language, matrix, `pasp`, `colour`, and an edit list. `colour` writes an `nclx` `colr` box into a built visual entry. A raw entry keeps its own `colr` box.
 - `TrackSpec::copy_from` builds a spec from an MP4 track.
 - `TrackSpec::copy_from` also takes a Matroska H.264, HEVC, AV1, AAC, Opus or `S_TEXT/UTF8` track. `StreamCopy::plan` adds packet timing and, for Matroska, the decode times and edit list MP4 needs.
 - Layout: `ftyp`, `mdat`, `moov`. `MuxOptions::faststart` moves `moov` to the front in a second pass on the same target. That pass adds the shift to every chunk offset.
@@ -105,6 +106,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 - The EBML reader is containr's own. It checks every size before it allocates, and decodes unknown sizes of any length.
 - Each track carries its `TrackNumber` as id, kind, `TimestampScale` timebase, and language. `Track::matroska` holds `TrackUID`, `CodecID`, raw `CodecPrivate`, `Language` and `LanguageBCP47`, `DefaultDuration`, `CodecDelay`, `SeekPreRoll`, flags, and `ContentEncodings`.
 - Video tracks carry pixel and display size, `DisplayUnit`, crop, and `Projection` with `ProjectionPoseRoll`. Audio tracks carry sampling frequency, channels, and bit depth.
+- `MatroskaVideo::colour` holds the `Colour` tags `MatrixCoefficients`, `TransferCharacteristics`, `Primaries` and `Range`. `Range` 1 gives limited, 2 gives full, and 0 or 3 give `None`. A code point above 255 is an error that names the element path. The raw `Colour` element also stays in `MatroskaVideo::extra`.
 - Packets carry `pts` (Cluster `Timestamp` plus the block timestamp), duration, keyframe and discardable flags, `DiscardPadding`, byte offset, and size. `dts` is `None`: Matroska stores no decode timestamp.
 - Xiph, EBML and fixed lacing expand into one packet per frame. Each laced packet records its place in the lace.
 - Timestamps count in `TimestampScale` nanoseconds, as integers. `CodecDelay` and `DiscardPadding` come raw. The caller applies them.
@@ -119,6 +121,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 
 - `Muxer::new`, `add_track`, `set_metadata`, `set_chapters`, `attach`, `write_packet`, `finish`. A target with no seek works through `NoSeek` with `MkvOptions::seekable` set to false.
 - `TrackSpec::copy_from` and `StreamCopy::plan` copy a Matroska track with every `MatroskaTrack` fact, or map an MP4 `avc1`, `avc3`, `hvc1`, `hev1`, `av01`, `vp09`, `mp4a`, `Opus` or `tx3g` track.
+- Colour tags survive every copy. MP4 to MKV maps a `colr` `nclx` or `nclc` box to `Colour`. MKV to MP4 maps `Colour` to an `nclx` `colr` box, with an unset tag written as 2 (unspecified) and an unset range as limited. A hand-built spec sets `MatroskaVideo::colour`. The muxer writes a raw `Colour` element unchanged when it matches `colour`. Otherwise `colour` replaces the four tags and the element keeps its other children, such as `MasteringMetadata`.
 - An MP4 track's language maps through `Language::iso639_mapped`, and a code with no table entry writes `und`. Matroska output uses the bibliographic form, such as `ger`, because version 2 readers expect it. MP4 output uses the terminology form, such as `deu`, as `mdhd` defines it.
 - An edit list maps to timing: an empty edit and a video `media_time` shift `pts`, an audio `media_time` becomes `CodecDelay`, and an audio end trim becomes `DiscardPadding`.
 - The default refuses. `StreamCopy::plan` and `Muxer::write_packet` take a value only when it is a whole number of nanoseconds and a whole multiple of `TimestampScale`. `StreamCopy::timestamp_scale` picks a scale that holds a set of tracks.

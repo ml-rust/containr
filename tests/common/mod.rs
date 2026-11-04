@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod colour;
 #[cfg(feature = "mkv")]
 pub mod mkv_probe;
 pub mod mkv_synth;

@@ -5,6 +5,8 @@
 //! `S_TEXT/UTF8` cues become `tx3g` samples. Every other codec is refused
 //! and the error names Matroska.
 //!
+//! `Video/Colour` maps to an `nclx` `colr` box in the sample entry.
+//!
 //! The media timescale keeps the Matroska tick exact: `TimestampScale`
 //! reduced over one second. When the reduced tick is not one over an
 //! integer, timestamps scale up by a whole factor.
@@ -181,6 +183,7 @@ fn video_spec(
     spec.display_width = u32::from(dimension(display_width, "DisplayWidth")?) << 16;
     spec.display_height = u32::from(dimension(display_height, "DisplayHeight")?) << 16;
     spec.pixel_aspect = pixel_aspect(video, display_width, display_height)?;
+    spec.colour = video.colour;
     Ok(spec)
 }
 

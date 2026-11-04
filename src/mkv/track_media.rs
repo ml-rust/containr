@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaVideo, Projection, RawElement};
+use crate::mkv::colour::parse_colour;
 use crate::mkv::ebml::{Element, child_path};
 use crate::mkv::ids;
 
@@ -16,6 +17,7 @@ pub(crate) fn parse_video(video: &Element<'_>, path: &str) -> Result<MatroskaVid
         crop: [0; 4],
         interlaced: 0,
         projection: None,
+        colour: None,
         extra: Vec::new(),
     };
     for child in video.children(path) {
@@ -33,6 +35,13 @@ pub(crate) fn parse_video(video: &Element<'_>, path: &str) -> Result<MatroskaVid
             ids::PIXEL_CROP_RIGHT => out.crop[3] = child.uint(&at)?,
             ids::FLAG_INTERLACED => out.interlaced = child.uint(&at)?,
             ids::PROJECTION => out.projection = Some(parse_projection(&child, &at)?),
+            ids::COLOUR => {
+                out.colour = parse_colour(&child, &at)?;
+                out.extra.push(RawElement {
+                    id: ids::COLOUR,
+                    body: child.binary(),
+                });
+            }
             other => out.extra.push(RawElement {
                 id: other,
                 body: child.binary(),

@@ -1,3 +1,4 @@
+mod colour;
 mod ffprobe;
 mod layout;
 mod refusals;

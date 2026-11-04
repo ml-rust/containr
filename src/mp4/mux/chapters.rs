@@ -71,7 +71,7 @@ pub(crate) fn chapter_track(
     );
     spec.handler = FourCc(*b"text");
     spec.enabled = false;
-    let (_, entry) = build_entry(&spec.sample_entry, None)?;
+    let (_, entry) = build_entry(&spec.sample_entry, None, None)?;
     let mut track = TrackState::new(id, spec, entry, chunk_ms);
 
     let starts: Vec<u64> = chapters

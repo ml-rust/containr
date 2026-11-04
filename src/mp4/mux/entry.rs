@@ -1,7 +1,9 @@
 //! Sample entry bytes: a raw entry checked for stream copy, or an entry
 //! built from a codec configuration.
 
+use crate::colour::ContainerColour;
 use crate::error::Result;
+use crate::mp4::colour::nclx_body;
 use crate::mp4::mux::bytes::BoxBuf;
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::spec::SampleEntrySpec;
@@ -34,6 +36,7 @@ const DREF_AT: usize = 14;
 pub(crate) fn build_entry(
     spec: &SampleEntrySpec,
     pixel_aspect: Option<PixelAspect>,
+    colour: Option<ContainerColour>,
 ) -> Result<(FourCc, Vec<u8>)> {
     match spec {
         SampleEntrySpec::Raw(raw) => raw_entry(raw),
@@ -77,6 +80,9 @@ pub(crate) fn build_entry(
                 buf.u32(aspect.h_spacing);
                 buf.u32(aspect.v_spacing);
                 buf.close(pasp_start, &format!("{path}/pasp"))?;
+            }
+            if let Some(body) = colour.as_ref().and_then(nclx_body) {
+                buf.boxed(b"colr", &body, &format!("{path}/colr"))?;
             }
             buf.close(start, &path)?;
             Ok((FourCc(*kind), buf.into_bytes()))
@@ -174,7 +180,7 @@ mod tests {
             h_spacing: 4,
             v_spacing: 3,
         };
-        let (kind, bytes) = build_entry(&spec, Some(aspect)).expect("the entry builds");
+        let (kind, bytes) = build_entry(&spec, Some(aspect), None).expect("the entry builds");
         assert_eq!(kind, FourCc(*b"avc1"));
         assert_eq!(bytes.len(), 8 + 78 + 11 + 16);
         assert_eq!(&bytes[32..36], &[0, 96, 0, 64]);
@@ -186,6 +192,32 @@ mod tests {
     }
 
     #[test]
+    fn visual_entry_writes_an_nclx_colr_box() {
+        let spec = SampleEntrySpec::Visual {
+            codec: VisualCodec::Hevc,
+            config: vec![1],
+            width: 96,
+            height: 64,
+        };
+        let colour = ContainerColour {
+            primaries: Some(9),
+            transfer: Some(16),
+            matrix: Some(9),
+            full_range: Some(true),
+        };
+        let (_, bytes) = build_entry(&spec, None, Some(colour)).expect("the entry builds");
+        let tail = &bytes[bytes.len() - 19..];
+        assert_eq!(&tail[..8], &[0, 0, 0, 19, b'c', b'o', b'l', b'r']);
+        assert_eq!(
+            &tail[8..],
+            &[b'n', b'c', b'l', b'x', 0, 9, 0, 16, 0, 9, 0x80]
+        );
+        let (_, plain) =
+            build_entry(&spec, None, Some(ContainerColour::default())).expect("the entry builds");
+        assert_eq!(plain.len() + 19, bytes.len());
+    }
+
+    #[test]
     fn audio_entry_stores_the_rate_as_16_16() {
         let spec = SampleEntrySpec::Audio {
             codec: AudioCodec::Opus,
@@ -193,7 +225,7 @@ mod tests {
             channels: 2,
             sample_rate: 48_000,
         };
-        let (kind, bytes) = build_entry(&spec, None).expect("the entry builds");
+        let (kind, bytes) = build_entry(&spec, None, None).expect("the entry builds");
         assert_eq!(kind, FourCc(*b"Opus"));
         assert_eq!(&bytes[24..26], &[0, 2]);
         assert_eq!(&bytes[32..36], &(48_000u32 << 16).to_be_bytes());
@@ -203,12 +235,12 @@ mod tests {
     #[test]
     fn raw_entry_resets_the_data_reference() {
         let mut raw = vec![0, 0, 0, 16, b'm', b'p', b'4', b'a', 0, 0, 0, 0, 0, 0, 0, 7];
-        let (kind, out) =
-            build_entry(&SampleEntrySpec::Raw(raw.clone()), None).expect("the entry is whole");
+        let (kind, out) = build_entry(&SampleEntrySpec::Raw(raw.clone()), None, None)
+            .expect("the entry is whole");
         assert_eq!(kind, FourCc(*b"mp4a"));
         assert_eq!(&out[14..16], &[0, 1]);
         raw[3] = 40;
-        assert!(build_entry(&SampleEntrySpec::Raw(raw), None).is_err());
+        assert!(build_entry(&SampleEntrySpec::Raw(raw), None, None).is_err());
     }
 
     #[test]

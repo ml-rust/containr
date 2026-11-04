@@ -24,6 +24,7 @@ mod attachments;
 mod block;
 mod chapters;
 mod cluster;
+mod colour;
 mod demuxer;
 mod ebml;
 mod ebml_write;

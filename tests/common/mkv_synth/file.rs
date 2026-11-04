@@ -28,8 +28,9 @@ pub struct Synth {
     pub clusters: [u64; 2],
 }
 
-fn tracks() -> Vec<u8> {
+fn tracks(colour: Option<&[u8]>) -> Vec<u8> {
     let projection = el(0x7670, &el(0x7675, &(-90.0f64).to_bits().to_be_bytes()));
+    let colour = colour.map(|body| el(0x55B0, body)).unwrap_or_default();
     let video = el(
         0xE0,
         &cat(&[
@@ -38,6 +39,7 @@ fn tracks() -> Vec<u8> {
             uint(0x54B0, 4),
             uint(0x54BA, 3),
             uint(0x54B2, 3),
+            colour,
             projection,
         ]),
     );
@@ -203,6 +205,12 @@ fn seek_head(positions: [u64; 3]) -> Vec<u8> {
 /// Build the file. With `unknown_segment`, the Segment size is the
 /// unknown-size marker.
 pub fn file(unknown_segment: bool) -> Synth {
+    file_with_colour(unknown_segment, None)
+}
+
+/// [`file`] with a `Colour` element of the given body in the video track's
+/// `Video` element.
+pub fn file_with_colour(unknown_segment: bool, colour: Option<&[u8]>) -> Synth {
     let header = el(
         0x1A45_DFA3,
         &cat(&[
@@ -228,7 +236,7 @@ pub fn file(unknown_segment: bool) -> Synth {
             text(0x5741, "containr-test"),
         ]),
     );
-    let tracks = tracks();
+    let tracks = tracks(colour);
     let mut counts = [0u64; 2];
     let first = [
         Spec {

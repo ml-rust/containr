@@ -1,5 +1,6 @@
 //! What the muxer needs to write one track, and one packet.
 
+use crate::colour::ContainerColour;
 use crate::edit::EditList;
 use crate::metadata::MetadataItem;
 use crate::track::{FourCc, Language, PixelAspect, TrackKind, TrackReference};
@@ -137,6 +138,11 @@ pub struct TrackSpec {
     /// The `pasp` box of a built visual entry. A [`SampleEntrySpec::Raw`]
     /// entry keeps the `pasp` it holds, and the muxer ignores this field.
     pub pixel_aspect: Option<PixelAspect>,
+    /// The colour tags of a built visual entry, written as an `nclx` `colr`
+    /// box. A tag left `None` is written as 2 (unspecified), and a missing
+    /// range as limited. A [`SampleEntrySpec::Raw`] entry keeps the `colr`
+    /// box it holds, and the muxer ignores this field.
+    pub colour: Option<ContainerColour>,
     /// The `tkhd` enabled flag.
     pub enabled: bool,
     /// The edit list. Empty writes no `edts`. Segment durations count in
@@ -157,7 +163,7 @@ pub struct TrackSpec {
 impl TrackSpec {
     /// A spec with the defaults for `kind`: the handler and handler name
     /// FFmpeg writes, language `und`, the identity matrix, no edits, no
-    /// metadata, and the track enabled.
+    /// colour tags, no metadata, and the track enabled.
     pub fn new(kind: TrackKind, timescale: u32, sample_entry: SampleEntrySpec) -> Self {
         let (handler, handler_name) = match kind {
             TrackKind::Video => (b"vide", "VideoHandler"),
@@ -176,6 +182,7 @@ impl TrackSpec {
             display_width: 0,
             display_height: 0,
             pixel_aspect: None,
+            colour: None,
             enabled: true,
             edit_list: EditList::default(),
             references: Vec::new(),

@@ -9,6 +9,7 @@ use crate::matroska::{
     ContentEncoding, DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo, Projection,
     RawElement,
 };
+use crate::mkv::colour::write_colour;
 use crate::mkv::ebml_write::ElementBuf;
 use crate::mkv::ids;
 
@@ -104,7 +105,20 @@ fn video_body(video: &MatroskaVideo) -> Result<ElementBuf> {
     if let Some(projection) = &video.projection {
         out.master(ids::PROJECTION, &projection_body(projection)?)?;
     }
-    raw(&mut out, &video.extra)?;
+    let last_colour = video
+        .extra
+        .iter()
+        .rposition(|element| element.id == ids::COLOUR);
+    for (index, element) in video.extra.iter().enumerate() {
+        if Some(index) == last_colour {
+            write_colour(&mut out, video.colour, Some(element.body.as_slice()))?;
+        } else {
+            out.binary(element.id, &element.body)?;
+        }
+    }
+    if last_colour.is_none() {
+        write_colour(&mut out, video.colour, None)?;
+    }
     Ok(out)
 }
 
@@ -160,6 +174,7 @@ fn encoding_body(encoding: &ContentEncoding) -> Result<ElementBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colour::ContainerColour;
     use crate::mkv::ebml::Element;
     use crate::mkv::mux::spec::TrackSpec;
     use crate::mkv::tracks::parse_tracks;
@@ -210,6 +225,12 @@ mod tests {
                 pose_yaw: 1.0,
                 pose_pitch: 2.0,
                 pose_roll: 90.0,
+            }),
+            colour: Some(ContainerColour {
+                primaries: None,
+                transfer: None,
+                matrix: None,
+                full_range: Some(false),
             }),
             extra: vec![RawElement {
                 id: 0x55B0,

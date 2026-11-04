@@ -8,6 +8,8 @@ Each release must have a non-empty section here before it can be tagged — `.gi
 
 ### Added
 
+- `ContainerColour`, `VideoInfo::colour`, `MatroskaVideo::colour` and `Track::colour`: the H.273 colour primaries, transfer characteristics, matrix coefficients and full-range flag that a container tags next to the bitstream. MP4 and MOV read `colr` `nclx` and QuickTime `nclc`. Matroska reads `Video/Colour`. A code point above 255 gives an error that names the box or element path. `prof` and `rICC` boxes give no values.
+- Stream copy keeps colour tags. MP4 to MP4 and MKV to MKV keep the raw bytes. MP4 to MKV maps `colr` to `Colour`, and MKV to MP4 maps `Colour` to an `nclx` `colr` box. `mp4::TrackSpec::colour` and `MatroskaVideo::colour` set the tags on a hand-built spec.
 - MP4 and QuickTime MOV demux behind the `mp4` feature: tracks, sample entries with codec configuration, packets with `dts`, `pts`, duration and sync flag, raw edit lists, `udta`/`meta` metadata, and `chpl` and chapter-track chapters. `moov` can sit before or after `mdat`.
 - Fragmented MP4 is refused with `Error::Fragmented`.
 - Matroska and WebM demux behind the `mkv` feature, with containr's own EBML reader: tracks with `CodecID`, `CodecPrivate`, language, `DefaultDuration`, `CodecDelay`, `SeekPreRoll`, video and audio facts, and `Projection`. Packets come from `SimpleBlock` and `BlockGroup` blocks, with Xiph, EBML and fixed lacing expanded, `DiscardPadding`, and keyframe and discardable flags. Clusters can have an unknown size. `Cues`, `SeekHead`, `Chapters`, `Tags` and `Attachments` are read.
@@ -27,6 +29,7 @@ Each release must have a non-empty section here before it can be tagged — `.gi
 
 ### Changed
 
+- `VideoInfo` and `MatroskaVideo` gain a `colour` field, so a struct literal of either needs it. The `Colour` element stays in `MatroskaVideo::extra`.
 - `StreamCopy::timestamp_scale` starts from the plans' own scales, so a rounded plan keeps the scale it names. An exact set of plans gets the value it got before.
 - MP4 to Matroska stream copy maps a QuickTime Macintosh language code to its ISO 639-2/T code. It wrote `und` for every such code. `0x7FFF` and a code with no table entry still write `und`.
 - `mkv::Muxer::set_chapters` refuses a repeated non-zero `ChapterUID`, and names the UID and both chapter positions.

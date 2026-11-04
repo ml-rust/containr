@@ -4,6 +4,7 @@
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use containr::Error;
 use containr::mkv::Demuxer;
 
 use crate::common::{self, mkv_synth};
@@ -115,5 +116,50 @@ fn ffmpeg_fixtures_survive_corruption() {
             let end = FIXTURE_SWEEP.min(fx.bytes.len());
             corruptions(name, &fx.bytes, 0..end);
         }
+    }
+}
+
+#[test]
+fn colour_file_survives_truncation_and_corruption() {
+    // MatrixCoefficients 9, TransferCharacteristics 16, Primaries 9, Range 1.
+    let body = [
+        0x55, 0xB1, 0x81, 9, 0x55, 0xBA, 0x81, 16, 0x55, 0xBB, 0x81, 9, 0x55, 0xB9, 0x81, 1,
+    ];
+    let synth = mkv_synth::file_with_colour(false, Some(&body));
+    for cut in 0..synth.bytes.len() {
+        check(
+            "colour",
+            &format!("a cut at {cut}"),
+            synth.bytes[..cut].to_vec(),
+        );
+    }
+    corruptions("colour", &synth.bytes, 0..synth.bytes.len());
+}
+
+#[test]
+fn malformed_colour_elements_give_a_named_error() {
+    let cases: [(&str, &[u8]); 4] = [
+        (
+            "a child that runs past its parent",
+            &[0x55, 0xB1, 0x85, 0x01],
+        ),
+        ("a header cut short", &[0x55]),
+        (
+            "a Range of nine bytes",
+            &[0x55, 0xB9, 0x89, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        ),
+        (
+            "a Primaries value above 255",
+            &[0x55, 0xBB, 0x82, 0x01, 0x00],
+        ),
+    ];
+    for (what, body) in cases {
+        let synth = mkv_synth::file_with_colour(false, Some(body));
+        let err = match Demuxer::open(Cursor::new(synth.bytes)) {
+            Ok(_) => panic!("{what}: the demuxer accepted the element"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, Error::Malformed { .. }), "{what}: {err}");
+        assert!(err.to_string().contains("Colour"), "{what}: {err}");
     }
 }

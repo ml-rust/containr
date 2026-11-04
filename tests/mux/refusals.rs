@@ -142,6 +142,7 @@ fn matroska_crop_and_content_encodings_name_matroska() {
         crop: [0, 2, 0, 0],
         interlaced: 0,
         projection: None,
+        colour: None,
         extra: Vec::new(),
     });
     assert_names_matroska(&refusal(&track), "PixelCrop");

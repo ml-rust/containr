@@ -19,6 +19,10 @@ The reference JSON holds:
 - edit_lists: the `elst` entries of each trak in file order, read from the
   ffprobe trace log of a second pass that keeps the edit lists.
 - top_level: the top-level box types in file order.
+
+The colour fixtures (colour_*) carry `-color_primaries`, `-color_trc`,
+`-colorspace` and `-color_range` tags. The reference streams hold ffprobe's
+`color_primaries`, `color_transfer`, `color_space` and `color_range`.
 """
 
 import json
@@ -37,6 +41,27 @@ AUDIO_SRC = ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"]
 H264 = ["-c:v", "libx264", "-preset", "veryfast", "-bf", "2", "-g", "12", "-pix_fmt", "yuv420p"]
 AAC = ["-c:a", "aac", "-ac", "2", "-b:a", "64k"]
 DURATION = ["-t", "2"]
+
+# Container colour tags. `setparams` tags the frames, which FFmpeg 9 needs
+# before it writes primaries and transfer. The `-color_*` options tag the
+# encoder as well. A fixture tags all four fields, so ffprobe reports all four.
+
+
+def colour_args(primaries, transfer, matrix, range_name):
+    options = {"tv": "tv", "pc": "pc"}[range_name]
+    return [
+        "-vf",
+        f"setparams=color_primaries={primaries}:color_trc={transfer}:colorspace={matrix}:range={options}",
+        "-color_primaries", primaries,
+        "-color_trc", transfer,
+        "-colorspace", matrix,
+        "-color_range", range_name,
+    ]
+
+
+BT709 = colour_args("bt709", "bt709", "bt709", "tv")
+BT709_FULL = colour_args("bt709", "bt709", "bt709", "pc")
+BT2020_PQ = colour_args("bt2020", "smpte2084", "bt2020nc", "tv")
 
 SRT = """1
 00:00:00,200 --> 00:00:00,900
@@ -168,6 +193,20 @@ def make(name, args):
     return path
 
 
+def make_colour():
+    """Fixtures whose colour tags sit in the container: `colr` boxes."""
+    OUT.mkdir(parents=True, exist_ok=True)
+    make("colour_bt709.mp4", VIDEO_SRC + DURATION + H264 + BT709)
+    make(
+        "colour_bt2020_pq.mp4",
+        VIDEO_SRC + DURATION
+        + ["-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error", "-pix_fmt", "yuv420p"]
+        + BT2020_PQ,
+    )
+    make("colour_bt709_full.mov", VIDEO_SRC + DURATION + H264 + BT709_FULL)
+    make("colour_bt2020_pq.mov", VIDEO_SRC + DURATION + H264 + BT2020_PQ)
+
+
 def main():
     for tool in ("ffmpeg", "ffprobe"):
         if shutil.which(tool) is None:
@@ -240,6 +279,7 @@ def main():
         + ["-metadata:s:v:0", "language=jpn", "-metadata:s:a:0", "language=eng"]
         + ["-metadata:s:a:1", "language=fra", "-metadata:s:a:2", "language=spa"],
     )
+    make_colour()
     available = encoders()
     if "libvpx-vp9" in available:
         make(

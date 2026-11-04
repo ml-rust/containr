@@ -4,6 +4,7 @@
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use containr::Error;
 use containr::mp4::Demuxer;
 
 use crate::common::{self, moov_range, synth};
@@ -108,5 +109,46 @@ fn ffmpeg_fixtures_survive_corruption() {
         if let Some(fx) = common::fixture(name) {
             corruptions(name, &fx.bytes);
         }
+    }
+}
+
+#[test]
+fn colr_movie_survives_truncation_and_corruption() {
+    let nclx: &[u8] = &[b'n', b'c', b'l', b'x', 0, 9, 0, 16, 0, 9, 0x80];
+    let nclc: &[u8] = &[b'n', b'c', b'l', b'c', 0, 1, 0, 1, 0, 1];
+    let (bytes, _) = synth::movie_with_colr(true, &[b"prof\x01", nclx, nclc]);
+    for cut in 0..bytes.len() {
+        check("colr", &format!("a cut at {cut}"), bytes[..cut].to_vec());
+    }
+    corruptions("colr", &bytes);
+}
+
+#[test]
+fn malformed_colr_boxes_give_a_named_error() {
+    let cases: [(&str, &[u8]); 6] = [
+        ("an empty body", b""),
+        ("a colour type cut short", b"ncl"),
+        ("an nclx box with no values", b"nclx"),
+        (
+            "an nclx box without its flag byte",
+            &[b'n', b'c', b'l', b'x', 0, 9, 0, 16, 0, 9],
+        ),
+        (
+            "an nclc box with one value",
+            &[b'n', b'c', b'l', b'c', 0, 1],
+        ),
+        (
+            "a primaries value above 255",
+            &[b'n', b'c', b'l', b'x', 1, 0, 0, 16, 0, 9, 0],
+        ),
+    ];
+    for (what, body) in cases {
+        let (bytes, _) = synth::movie_with_colr(true, &[body]);
+        let err = match Demuxer::open(Cursor::new(bytes)) {
+            Ok(_) => panic!("{what}: the demuxer accepted the box"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, Error::Malformed { .. }), "{what}: {err}");
+        assert!(err.to_string().contains("colr"), "{what}: {err}");
     }
 }

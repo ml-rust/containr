@@ -39,6 +39,7 @@ pub(super) fn entry(fourcc: &[u8; 4], config: Option<CodecConfig>) -> SampleEntr
             width: 96,
             height: 64,
             pixel_aspect: None,
+            colour: None,
         }),
         audio: Some(AudioInfo {
             channels: 2,
@@ -135,6 +136,29 @@ fn vp09_maps_with_no_codec_private() {
 }
 
 #[test]
+fn colr_colour_maps_to_the_video_colour() {
+    let colour = containr::ContainerColour {
+        primaries: Some(9),
+        transfer: Some(16),
+        matrix: Some(9),
+        full_range: Some(false),
+    };
+    let mut tagged = entry(b"vp09", None);
+    tagged.video = Some(VideoInfo {
+        width: 96,
+        height: 64,
+        pixel_aspect: None,
+        colour: Some(colour),
+    });
+    let spec = mapped(&track(TrackKind::Video, 12_800, vec![tagged]));
+    let video = spec.matroska.video.as_ref().expect("a Video element");
+    assert_eq!(video.colour, Some(colour));
+    let untagged = mapped(&track(TrackKind::Video, 12_800, vec![entry(b"vp09", None)]));
+    let video = untagged.matroska.video.as_ref().expect("a Video element");
+    assert_eq!(video.colour, None);
+}
+
+#[test]
 fn pixel_aspect_and_rotation_map() {
     let mut with_pasp = entry(b"vp09", None);
     with_pasp.video = Some(VideoInfo {
@@ -144,6 +168,7 @@ fn pixel_aspect_and_rotation_map() {
             h_spacing: 4,
             v_spacing: 3,
         }),
+        colour: None,
     });
     let mut source = track(TrackKind::Video, 12_800, vec![with_pasp]);
     source.matrix = [0, -0x10000, 0, 0x10000, 0, 0, 0, 0, 0x4000_0000];

@@ -5,6 +5,8 @@
 //! Matroska stores as floats: sample rates and projection angles, never
 //! timestamps.
 
+use crate::colour::ContainerColour;
+
 /// One child element containr does not model. The demuxer keeps it raw, and
 /// stream copy writes it back unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -144,8 +146,19 @@ pub struct MatroskaVideo {
     pub interlaced: u64,
     /// The `Projection` element.
     pub projection: Option<Projection>,
-    /// The other `Video` children, such as `Colour`, `StereoMode` and
-    /// `AlphaMode`, in file order.
+    /// The H.273 tags of the `Colour` element: `MatrixCoefficients`,
+    /// `TransferCharacteristics`, `Primaries` and `Range`. `None` when the
+    /// element is absent or holds none of them. The demuxer also keeps the
+    /// whole `Colour` element in `extra`, so stream copy keeps
+    /// `MasteringMetadata` and `MaxCLL`.
+    ///
+    /// The muxer writes the `extra` element unchanged when it parses to
+    /// this value. A different value replaces the four tags in it and keeps
+    /// its other children. A spec built by hand sets this field and leaves
+    /// `extra` free of `Colour`.
+    pub colour: Option<ContainerColour>,
+    /// The other `Video` children, such as `StereoMode` and `AlphaMode`,
+    /// and the raw `Colour` element, in file order.
     pub extra: Vec<RawElement>,
 }
 

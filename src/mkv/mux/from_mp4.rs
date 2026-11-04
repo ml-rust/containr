@@ -5,7 +5,8 @@
 //! `av01` maps to `V_AV1` with `av1C`, `vp09` to `V_VP9` with no
 //! `CodecPrivate`, `mp4a` to `A_AAC` with the AudioSpecificConfig, `Opus` to
 //! `A_OPUS` with `OpusHead`, and `tx3g` to `S_TEXT/UTF8`. Every other entry
-//! is refused, and the error names MP4.
+//! is refused, and the error names MP4. A `colr` `nclx` or `nclc` box maps to
+//! `Video/Colour`.
 
 use crate::error::{Error, Result};
 use crate::mac_language::bibliographic;
@@ -141,6 +142,7 @@ fn video_spec(
         crop: [0; 4],
         interlaced: 0,
         projection,
+        colour: info.colour,
         extra: Vec::new(),
     });
     Ok(spec)
@@ -236,6 +238,7 @@ mod tests {
                     width: 96,
                     height: 64,
                     pixel_aspect: None,
+                    colour: None,
                 }),
                 audio: None,
             }],

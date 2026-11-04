@@ -73,6 +73,7 @@ fn spec(random: &mut Random) -> TrackSpec {
                 crop: [0; 4],
                 interlaced: 0,
                 projection: None,
+                colour: None,
                 extra: Vec::new(),
             });
             spec

@@ -42,6 +42,7 @@ pub(super) fn video(codec_id: &str) -> TrackSpec {
         crop: [0; 4],
         interlaced: 0,
         projection: None,
+        colour: None,
         extra: Vec::new(),
     });
     spec

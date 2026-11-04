@@ -10,6 +10,7 @@
 
 mod boxes;
 mod chapters;
+mod colour;
 mod demuxer;
 mod metadata;
 mod moov;

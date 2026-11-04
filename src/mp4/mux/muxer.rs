@@ -96,7 +96,7 @@ impl<W: Write + Seek> Muxer<W> {
         }
         check_items(&spec.metadata, Level::Track)?;
         spec.edit_list = checked_edit_list(&spec.edit_list, self.options.movie_timescale)?;
-        let (fourcc, entry) = build_entry(&spec.sample_entry, spec.pixel_aspect)?;
+        let (fourcc, entry) = build_entry(&spec.sample_entry, spec.pixel_aspect, spec.colour)?;
         if spec.packet_format == PacketFormat::PlainText && &fourcc.0 != b"tx3g" {
             return Err(invalid(format!(
                 "`PacketFormat::PlainText` writes `tx3g` samples, but the sample entry is \

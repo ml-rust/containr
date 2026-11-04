@@ -24,6 +24,12 @@ fn video() -> TrackSpec {
         crop: [0, 2, 0, 4],
         interlaced: 2,
         projection: None,
+        colour: Some(containr::ContainerColour {
+            primaries: None,
+            transfer: None,
+            matrix: None,
+            full_range: Some(false),
+        }),
         extra: vec![RawElement {
             id: 0x55B0,
             body: vec![0x55, 0xB9, 0x81, 1],

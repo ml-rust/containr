@@ -15,6 +15,10 @@ Writes into tests/fixtures/mkv/, which git ignores:
 
 The reference JSON holds `streams`, `packets`, `chapters` and `format`:
 ffprobe output with the Adler-32 of each packet's bytes.
+
+The colour fixtures (colour_*) carry `-color_primaries`, `-color_trc`,
+`-colorspace` and `-color_range` tags. The reference streams hold ffprobe's
+`color_primaries`, `color_transfer`, `color_space` and `color_range`.
 """
 
 import json
@@ -34,6 +38,27 @@ VP9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", 
 AAC = ["-c:a", "aac", "-ac", "2", "-b:a", "64k"]
 OPUS = ["-c:a", "libopus", "-b:a", "48k"]
 DURATION = ["-t", "2"]
+
+# Container colour tags. `setparams` tags the frames, which FFmpeg 9 needs
+# before it writes primaries and transfer. The `-color_*` options tag the
+# encoder as well. A fixture tags all four fields, so ffprobe reports all four.
+
+
+def colour_args(primaries, transfer, matrix, range_name):
+    options = {"tv": "tv", "pc": "pc"}[range_name]
+    return [
+        "-vf",
+        f"setparams=color_primaries={primaries}:color_trc={transfer}:colorspace={matrix}:range={options}",
+        "-color_primaries", primaries,
+        "-color_trc", transfer,
+        "-colorspace", matrix,
+        "-color_range", range_name,
+    ]
+
+
+BT709 = colour_args("bt709", "bt709", "bt709", "tv")
+BT709_FULL = colour_args("bt709", "bt709", "bt709", "pc")
+BT2020_PQ = colour_args("bt2020", "smpte2084", "bt2020nc", "tv")
 
 # Each AV1 encoder with the flags that keep it fast on a 96x64 source.
 AV1_ENCODERS = [
@@ -192,6 +217,18 @@ def make_attachment(meta):
     )
 
 
+def make_colour():
+    """Fixtures whose colour tags sit in the container: `Video/Colour`."""
+    OUT.mkdir(parents=True, exist_ok=True)
+    make("colour_bt709.mkv", VIDEO_SRC + AUDIO_SRC + DURATION + H264 + AAC + BT709)
+    make("colour_bt709_full.mkv", VIDEO_SRC + DURATION + H264 + BT709_FULL)
+    make(
+        "colour_bt2020_pq.mkv",
+        VIDEO_SRC + AUDIO_SRC + DURATION + HEVC + ["-pix_fmt", "yuv420p"] + OPUS + BT2020_PQ,
+    )
+    make("colour_bt2020_pq.webm", VIDEO_SRC + DURATION + VP9 + ["-pix_fmt", "yuv420p"] + BT2020_PQ)
+
+
 def main():
     for tool in ("ffmpeg", "ffprobe"):
         if shutil.which(tool) is None:
@@ -220,6 +257,7 @@ def main():
         + ["-map", "0:v", "-map", "1:a", "-map_metadata", "2", "-map_chapters", "2"],
     )
     make_attachment(meta)
+    make_colour()
     make("rotate90.mkv", ["-display_rotation", "90", "-i", str(base), "-c", "copy"])
     # 1.013 s of 48 kHz audio is not a whole number of 20 ms Opus frames, so
     # the last block carries DiscardPadding.
