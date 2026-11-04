@@ -30,7 +30,7 @@ python3 tests/fixtures/gen_mp4.py
 python3 tests/fixtures/gen_mkv.py
 ```
 
-The scripts need `ffmpeg` and `ffprobe` on `PATH`, built with libx264, libx265 and libopus. gen_mkv.py also needs libvpx-vp9. It skips the AV1 fixture without an AV1 encoder, and the attachment fixture without a TrueType font. The scripts write into `tests/fixtures/mp4/` and `tests/fixtures/mkv/`, which git ignores:
+The scripts need `ffmpeg` and `ffprobe` on `PATH`, built with libx264, libx265 and libopus. gen_mkv.py also needs libvpx-vp9. It skips the AV1 fixture without an AV1 encoder, and the attachment fixture without a TrueType font. gen_mp4.py skips its VP9 fixture without libvpx-vp9, and its AV1 fixture without an AV1 encoder. The scripts write into `tests/fixtures/mp4/` and `tests/fixtures/mkv/`, which git ignores:
 
 - `<name>.mp4`, `<name>.mov`, `<name>.mkv` or `<name>.webm`: the fixture.
 - `<name>.probe.json`: the ffprobe reference data the tests compare against.

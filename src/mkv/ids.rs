@@ -2,6 +2,8 @@
 //! them.
 
 pub(crate) const EBML: u32 = 0x1A45_DFA3;
+pub(crate) const EBML_VERSION: u32 = 0x4286;
+pub(crate) const EBML_READ_VERSION: u32 = 0x42F7;
 pub(crate) const EBML_MAX_ID_LENGTH: u32 = 0x42F2;
 pub(crate) const EBML_MAX_SIZE_LENGTH: u32 = 0x42F3;
 pub(crate) const DOC_TYPE: u32 = 0x4282;
@@ -117,6 +119,7 @@ pub(crate) const CHAPTER_TIME_START: u32 = 0x91;
 pub(crate) const CHAPTER_TIME_END: u32 = 0x92;
 pub(crate) const CHAPTER_DISPLAY: u32 = 0x80;
 pub(crate) const CHAP_STRING: u32 = 0x85;
+pub(crate) const CHAP_LANGUAGE: u32 = 0x437C;
 
 pub(crate) const TAGS: u32 = 0x1254_C367;
 pub(crate) const TAG: u32 = 0x7373;

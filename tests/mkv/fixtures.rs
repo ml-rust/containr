@@ -6,8 +6,8 @@ use std::io::BufReader;
 use containr::mkv::Demuxer;
 use containr::{ChapterSource, MetadataScope, Packet, TagTarget, TrackKind};
 
+use crate::common::mkv_probe::media_streams;
 use crate::common::{self, Fixture, adler32, array, int, ratio, text};
-use crate::mkv::ffprobe::media_streams;
 
 type FileDemuxer = Demuxer<BufReader<File>>;
 

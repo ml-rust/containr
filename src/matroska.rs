@@ -5,6 +5,16 @@
 //! Matroska stores as floats: sample rates and projection angles, never
 //! timestamps.
 
+/// One child element containr does not model. The demuxer keeps it raw, and
+/// stream copy writes it back unchanged.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RawElement {
+    /// The element ID, marker bits included.
+    pub id: u32,
+    /// The element body.
+    pub body: Vec<u8>,
+}
+
 /// The facts of one Matroska `TrackEntry`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MatroskaTrack {
@@ -48,6 +58,9 @@ pub struct MatroskaTrack {
     pub video: Option<MatroskaVideo>,
     /// The `Audio` element, for an audio track.
     pub audio: Option<MatroskaAudio>,
+    /// The other `TrackEntry` children, such as `MaxBlockAdditionID` and
+    /// `BlockAdditionMapping`, in file order.
+    pub extra: Vec<RawElement>,
 }
 
 /// The `DisplayUnit` of `DisplayWidth` and `DisplayHeight`.
@@ -77,6 +90,18 @@ impl DisplayUnit {
             3 => Self::AspectRatio,
             4 => Self::Unknown,
             other => Self::Other(other),
+        }
+    }
+
+    /// The raw `DisplayUnit` value of this unit.
+    pub const fn value(self) -> u64 {
+        match self {
+            Self::Pixels => 0,
+            Self::Centimeters => 1,
+            Self::Inches => 2,
+            Self::AspectRatio => 3,
+            Self::Unknown => 4,
+            Self::Other(value) => value,
         }
     }
 }
@@ -119,6 +144,9 @@ pub struct MatroskaVideo {
     pub interlaced: u64,
     /// The `Projection` element.
     pub projection: Option<Projection>,
+    /// The other `Video` children, such as `Colour`, `StereoMode` and
+    /// `AlphaMode`, in file order.
+    pub extra: Vec<RawElement>,
 }
 
 /// The `Audio` element of a track.
@@ -132,6 +160,8 @@ pub struct MatroskaAudio {
     pub channels: u64,
     /// `BitDepth`.
     pub bit_depth: Option<u64>,
+    /// The other `Audio` children, in file order.
+    pub extra: Vec<RawElement>,
 }
 
 /// One `ContentEncoding`: a compression or encryption the track's packets
@@ -153,4 +183,6 @@ pub struct ContentEncoding {
     pub compression_settings: Option<Vec<u8>>,
     /// `ContentEncAlgo`, for encryption.
     pub encryption_algorithm: Option<u64>,
+    /// The raw `ContentEncryption` body, key IDs included.
+    pub encryption_settings: Option<Vec<u8>>,
 }

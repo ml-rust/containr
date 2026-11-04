@@ -18,6 +18,9 @@ pub enum Container {
     Mp4,
     /// Matroska or WebM.
     Matroska,
+    /// WebM output, which holds a subset of Matroska. Demux errors use
+    /// [`Container::Matroska`].
+    WebM,
 }
 
 impl Container {
@@ -26,6 +29,7 @@ impl Container {
         match self {
             Self::Mp4 => "MP4/MOV",
             Self::Matroska => "Matroska/WebM",
+            Self::WebM => "WebM",
         }
     }
 
@@ -33,7 +37,7 @@ impl Container {
     pub const fn unit(self) -> &'static str {
         match self {
             Self::Mp4 => "box",
-            Self::Matroska => "element",
+            Self::Matroska | Self::WebM => "element",
         }
     }
 
@@ -42,6 +46,7 @@ impl Container {
         match self {
             Self::Mp4 => "output.mp4",
             Self::Matroska => "output.mkv",
+            Self::WebM => "output.webm",
         }
     }
 }
@@ -403,12 +408,19 @@ impl fmt::Display for Error {
                 container,
                 what,
                 use_instead,
-            } => write!(
-                f,
-                "{} output cannot hold {what}. Mux it into {} instead",
-                container.name(),
-                use_instead.name()
-            ),
+            } => {
+                // WebM refusals name the `matroska` doc type, since the
+                // `Matroska/WebM` name also covers WebM.
+                let target = match (*container, *use_instead) {
+                    (Container::WebM, Container::Matroska) => "Matroska (`DocType::Matroska`)",
+                    (_, other) => other.name(),
+                };
+                write!(
+                    f,
+                    "{} output cannot hold {what}. Mux it into {target} instead",
+                    container.name()
+                )
+            }
             Self::DtsOutOfOrder {
                 track_id,
                 index,
@@ -444,8 +456,9 @@ impl fmt::Display for Error {
                 f,
                 "packet {index} of track {track_id} is the last of its track and has \
                  no duration, and the track spec has no default duration. Set \
-                 `PacketIn::duration` on the last packet, or \
-                 `TrackSpec::default_duration`"
+                 `PacketIn::duration` on the last packet, or the default duration \
+                 (`TrackSpec::default_duration` for MP4, \
+                 `MatroskaTrack::default_duration` for Matroska)"
             ),
             Self::InvalidPacket {
                 container,

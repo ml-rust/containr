@@ -2,7 +2,7 @@
 
 use crate::edit::EditList;
 use crate::error::{Error, Result};
-use crate::matroska::{ContentEncoding, MatroskaTrack};
+use crate::matroska::{ContentEncoding, MatroskaTrack, RawElement};
 use crate::mkv::ebml::{Element, child_path, indexed_path};
 use crate::mkv::ids;
 use crate::mkv::track_media::{parse_audio, parse_video};
@@ -57,6 +57,7 @@ fn parse_entry(entry: &Element<'_>, path: &str, timebase: Timebase) -> Result<Tr
         content_encodings: Vec::new(),
         video: None,
         audio: None,
+        extra: Vec::new(),
     };
     let mut codec_id: Option<String> = None;
     let mut track_type: Option<u64> = None;
@@ -83,7 +84,10 @@ fn parse_entry(entry: &Element<'_>, path: &str, timebase: Timebase) -> Result<Tr
             ids::VIDEO => mkv.video = Some(parse_video(&child, &at)?),
             ids::AUDIO => mkv.audio = Some(parse_audio(&child, &at)?),
             ids::CONTENT_ENCODINGS => mkv.content_encodings = parse_encodings(&child, &at)?,
-            _ => {}
+            other => mkv.extra.push(RawElement {
+                id: other,
+                body: child.binary(),
+            }),
         }
     }
     let number = number.ok_or_else(|| Error::mkv_missing(format!("{path}/TrackNumber")))?;
@@ -143,6 +147,7 @@ fn parse_encodings(encodings: &Element<'_>, path: &str) -> Result<Vec<ContentEnc
             compression_algorithm: None,
             compression_settings: None,
             encryption_algorithm: None,
+            encryption_settings: None,
         };
         for field in child.children(&at) {
             let field = field?;
@@ -170,6 +175,7 @@ fn parse_encodings(encodings: &Element<'_>, path: &str) -> Result<Vec<ContentEnc
                 }
                 ids::CONTENT_ENCRYPTION => {
                     encoding.encryption_algorithm = Some(0);
+                    encoding.encryption_settings = Some(field.binary());
                     for item in field.children(&field_path) {
                         let item = item?;
                         if item.id == ids::CONTENT_ENC_ALGO {

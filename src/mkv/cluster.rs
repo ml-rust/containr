@@ -28,7 +28,7 @@ pub(crate) struct RawFrame {
     pub timestamp: i64,
     /// The keyframe flag, or no `ReferenceBlock` in a `BlockGroup`.
     pub keyframe: bool,
-    /// The `SimpleBlock` discardable flag.
+    /// The discardable bit of the block flags.
     pub discardable: bool,
     /// The `BlockDuration`, in ticks.
     pub block_duration: Option<u64>,
@@ -264,7 +264,7 @@ fn read_block<R: Read + Seek>(
         } else {
             facts.keyframe
         },
-        discardable: facts.simple && header.discardable(),
+        discardable: header.discardable(),
         block_duration: facts.block_duration,
         discard_padding: facts.discard_padding,
         lace: None,

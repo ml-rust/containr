@@ -243,6 +243,7 @@ fn audio_spec(
         output_sampling_frequency: None,
         channels: 1,
         bit_depth: None,
+        extra: Vec::new(),
     };
     let audio = mkv.audio.as_ref().unwrap_or(&defaults);
     let channels = u16::try_from(audio.channels).map_err(|_| {

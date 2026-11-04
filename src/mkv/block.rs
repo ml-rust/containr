@@ -49,7 +49,8 @@ impl BlockHeader {
         self.flags & 0x80 != 0
     }
 
-    /// The `SimpleBlock` discardable flag.
+    /// The discardable bit. `SimpleBlock` defines it. The muxer also sets it
+    /// on a `Block` in a `BlockGroup`, where other readers ignore it.
     pub fn discardable(&self) -> bool {
         self.flags & 0x01 != 0
     }

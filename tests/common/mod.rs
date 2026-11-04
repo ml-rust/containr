@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+#[cfg(feature = "mkv")]
+pub mod mkv_probe;
 pub mod mkv_synth;
 #[cfg(feature = "mp4")]
 pub mod mp4_probe;

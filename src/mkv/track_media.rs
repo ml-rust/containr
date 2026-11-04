@@ -1,7 +1,7 @@
 //! The `Video` and `Audio` elements of a `TrackEntry`.
 
 use crate::error::Result;
-use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaVideo, Projection};
+use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaVideo, Projection, RawElement};
 use crate::mkv::ebml::{Element, child_path};
 use crate::mkv::ids;
 
@@ -16,6 +16,7 @@ pub(crate) fn parse_video(video: &Element<'_>, path: &str) -> Result<MatroskaVid
         crop: [0; 4],
         interlaced: 0,
         projection: None,
+        extra: Vec::new(),
     };
     for child in video.children(path) {
         let child = child?;
@@ -32,7 +33,10 @@ pub(crate) fn parse_video(video: &Element<'_>, path: &str) -> Result<MatroskaVid
             ids::PIXEL_CROP_RIGHT => out.crop[3] = child.uint(&at)?,
             ids::FLAG_INTERLACED => out.interlaced = child.uint(&at)?,
             ids::PROJECTION => out.projection = Some(parse_projection(&child, &at)?),
-            _ => {}
+            other => out.extra.push(RawElement {
+                id: other,
+                body: child.binary(),
+            }),
         }
     }
     Ok(out)
@@ -68,6 +72,7 @@ pub(crate) fn parse_audio(audio: &Element<'_>, path: &str) -> Result<MatroskaAud
         output_sampling_frequency: None,
         channels: 1,
         bit_depth: None,
+        extra: Vec::new(),
     };
     for child in audio.children(path) {
         let child = child?;
@@ -79,7 +84,10 @@ pub(crate) fn parse_audio(audio: &Element<'_>, path: &str) -> Result<MatroskaAud
             }
             ids::CHANNELS => out.channels = child.uint(&at)?,
             ids::BIT_DEPTH => out.bit_depth = Some(child.uint(&at)?),
-            _ => {}
+            other => out.extra.push(RawElement {
+                id: other,
+                body: child.binary(),
+            }),
         }
     }
     Ok(out)

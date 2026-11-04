@@ -2,7 +2,7 @@
 //! timestamps, track metadata and raw edit lists.
 //!
 //! Each container is a Cargo feature. `mp4` reads and writes MP4 and
-//! QuickTime MOV. `mkv` reads Matroska and WebM.
+//! QuickTime MOV. `mkv` reads and writes Matroska and WebM.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

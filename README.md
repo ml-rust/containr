@@ -5,7 +5,7 @@
 <h3>Media containers in Rust. Packets in, packets out, nothing decoded.</h3>
 
 <p>
-Read MP4, MOV, Matroska, and WebM, and write MP4 and MOV with stream copy. Timestamps stay integers and edit lists stay raw.
+Read and write MP4, MOV, Matroska, and WebM, with stream copy between them. Timestamps stay integers and edit lists stay raw.
 </p>
 
 <p>
@@ -54,9 +54,9 @@ In development. No release exists yet. [AGENTS.md](AGENTS.md) holds the implemen
 | Fragmented MP4 (`moof`) demux                                                                                                    | Roadmap     |
 | MP4/MOV mux (`mp4`): faststart, interleaved chunks, `co64`, edit lists, metadata, chapters, stream copy from MP4 and Matroska     | Implemented |
 | MKV/WebM demux (`mkv`): tracks, Clusters of known and unknown size, laced blocks, `Cues`, `Chapters`, `Tags`, `Attachments`      | Implemented |
-| MKV/WebM mux                                                                                                                     | Roadmap     |
+| MKV/WebM mux (`mkv`): `SeekHead`, Clusters, explicit last-block duration, `Cues`, `Chapters`, `Tags`, `Attachments`, WebM refusals | Implemented |
 | Stream copy into MP4/MOV (`mp4`), from MP4 and from Matroska H.264, HEVC, AV1, AAC, Opus and `S_TEXT/UTF8` tracks                | Implemented |
-| Stream copy into MKV/WebM                                                                                                        | Roadmap     |
+| Stream copy into MKV/WebM (`mkv`), from Matroska and from MP4 H.264, HEVC, AV1, VP9, AAC, Opus and `tx3g` tracks                 | Implemented |
 
 ## Features
 
@@ -65,7 +65,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 | Feature | What it adds                                                        |
 | ------- | ------------------------------------------------------------------- |
 | `mp4`   | `containr::mp4::Demuxer` and `Muxer` for MP4 and QuickTime MOV      |
-| `mkv`   | `containr::mkv::Demuxer` for Matroska and WebM                      |
+| `mkv`   | `containr::mkv::Demuxer` and `Muxer` for Matroska and WebM          |
 
 ## MP4/MOV demux
 
@@ -201,6 +201,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output.write_packet(*id, &plan.packet(&packet, &data)?)?;
     }
     output.finish()?;
+    Ok(())
+}
+```
+
+Stream copy from any demuxer goes through a plan per track:
+
+```rust,no_run
+use std::fs::File;
+
+use containr::mkv::{Demuxer, MkvOptions, Muxer, StreamCopy};
+
+fn main() -> Result<(), containr::Error> {
+    let mut input = Demuxer::open_path("input.mkv")?;
+    let mut plans = Vec::new();
+    for track in input.tracks() {
+        let packets = input
+            .track_packets(track.id)?
+            .collect::<Result<Vec<_>, _>>()?;
+        plans.push((track.id, StreamCopy::plan(track, &packets)?));
+    }
+    let options = MkvOptions {
+        timestamp_scale: input.info().timestamp_scale,
+        title: input.info().title.clone(),
+        ..MkvOptions::default()
+    };
+    let output = File::create("output.mkv")
+        .map_err(|err| containr::Error::Io {
+            what: "output.mkv".to_owned(),
+            offset: 0,
+            source: err,
+        })?;
+    let mut muxer = Muxer::new(output, options)?;
+    let mut ids = Vec::new();
+    for (source, plan) in &plans {
+        ids.push((*source, muxer.add_track(plan.spec.clone())?));
+    }
+    muxer.set_metadata(input.metadata().to_vec())?;
+    muxer.set_chapters(input.chapters().to_vec())?;
+    for packet in input.packets() {
+        let packet = packet?;
+        let bytes = input.read_packet(&packet)?;
+        let slot = ids.iter().position(|(source, _)| *source == packet.track_id);
+        if let Some(slot) = slot
+            && let Some(block) = plans[slot].1.packet(&packet, &bytes)?
+        {
+            muxer.write_packet(ids[slot].1, &block)?;
+        }
+    }
+    muxer.finish()?;
     Ok(())
 }
 ```

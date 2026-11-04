@@ -61,6 +61,7 @@ fn mkv_track(codec_id: &str, kind: TrackKind) -> Track {
         content_encodings: Vec::new(),
         video: None,
         audio: None,
+        extra: Vec::new(),
     };
     Track {
         kind,
@@ -141,6 +142,7 @@ fn matroska_crop_and_content_encodings_name_matroska() {
         crop: [0, 2, 0, 0],
         interlaced: 0,
         projection: None,
+        extra: Vec::new(),
     });
     assert_names_matroska(&refusal(&track), "PixelCrop");
     let mkv = track.matroska.as_mut().expect("a Matroska track");
@@ -152,6 +154,7 @@ fn matroska_crop_and_content_encodings_name_matroska() {
             compression_algorithm: Some(3),
             compression_settings: None,
             encryption_algorithm: None,
+            encryption_settings: None,
         });
     assert_names_matroska(&refusal(&track), "ContentEncodings");
 }

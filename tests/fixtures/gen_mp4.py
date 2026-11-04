@@ -4,7 +4,9 @@
 Usage: python3 tests/fixtures/gen_mp4.py
 
 Requires `ffmpeg` and `ffprobe` on PATH, with libx264, libx265, libopus and
-the native AAC and mov_text encoders.
+the native AAC and mov_text encoders. The VP9 and AV1 fixtures need libvpx-vp9
+and an AV1 encoder (libsvtav1, libaom-av1 or librav1e). Without one, the script
+skips that fixture with a notice.
 
 Writes into tests/fixtures/mp4/, which git ignores:
 - <name>.mp4 or <name>.mov: the fixture.
@@ -61,6 +63,13 @@ END=2000
 title=Closing
 """
 
+# Each AV1 encoder with the flags that keep it fast on a 96x64 source.
+AV1_ENCODERS = [
+    ("libsvtav1", ["-preset", "12"]),
+    ("libaom-av1", ["-cpu-used", "8", "-row-mt", "1"]),
+    ("librav1e", ["-speed", "10"]),
+]
+
 ELST_ENTRY = re.compile(r"duration=(-?\d+) time=(-?\d+) rate=(-?[0-9.]+)")
 TRAK_LINE = re.compile(r"type:'trak' parent:'moov'")
 
@@ -70,6 +79,11 @@ def run(args):
     if result.returncode != 0:
         sys.exit(f"command failed ({result.returncode}): {' '.join(args)}\n{result.stderr}")
     return result
+
+
+def encoders():
+    listing = run(["ffmpeg", "-hide_banner", "-encoders"]).stdout
+    return {line.split()[1] for line in listing.splitlines() if len(line.split()) > 1}
 
 
 def top_level_boxes(path):
@@ -203,6 +217,28 @@ def main():
         VIDEO_SRC + AUDIO_SRC + ["-i", str(meta)] + DURATION + H264 + AAC
         + ["-map", "0:v", "-map", "1:a", "-map_metadata", "2", "-map_chapters", "2"],
     )
+    # 1024 ticks at 32 kHz last a whole number of nanoseconds, unlike 44.1 and
+    # 48 kHz, so this AAC track has exact Matroska timestamps.
+    make(
+        "aac_32k.mp4",
+        ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000"] + DURATION + AAC + ["-ar", "32000"],
+    )
+    available = encoders()
+    if "libvpx-vp9" in available:
+        make(
+            "vp9_opus.mp4",
+            VIDEO_SRC + AUDIO_SRC + DURATION
+            + ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k"]
+            + ["-c:a", "libopus", "-b:a", "48k"],
+        )
+    else:
+        print("skipping vp9_opus.mp4: this ffmpeg has no libvpx-vp9 encoder")
+    for encoder, flags in AV1_ENCODERS:
+        if encoder in available:
+            make("av1.mp4", VIDEO_SRC + DURATION + ["-c:v", encoder] + flags + ["-pix_fmt", "yuv420p"])
+            break
+    else:
+        print("skipping av1.mp4: this ffmpeg has no AV1 encoder (libsvtav1, libaom-av1 or librav1e)")
 
 
 if __name__ == "__main__":

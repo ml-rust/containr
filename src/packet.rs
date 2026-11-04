@@ -25,8 +25,9 @@ pub struct Packet {
     pub duration: Option<u64>,
     /// True for a sync sample or keyframe (a random access point).
     pub sync: bool,
-    /// True when a Matroska `SimpleBlock` sets its discardable flag. Always
-    /// false for MP4.
+    /// True when a Matroska block sets its discardable bit. `SimpleBlock`
+    /// defines the bit. containr also reads it on a `Block` in a `BlockGroup`,
+    /// where its own muxer keeps the flag. Always false for MP4.
     pub discardable: bool,
     /// The Matroska `DiscardPadding`, in nanoseconds: positive trims the
     /// block end, negative trims its start. It sits on the last frame of a
