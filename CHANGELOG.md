@@ -26,6 +26,10 @@ Each release must have a non-empty section here before it can be tagged — `.gi
 - `matroska::RawElement`, and `extra` on `MatroskaTrack`, `MatroskaVideo` and `MatroskaAudio`: the children containr does not model, such as `Colour`, kept raw for stream copy. `ContentEncoding::encryption_settings` keeps the raw `ContentEncryption` body.
 - `Container::WebM` for WebM mux refusals.
 - `Error::Unsupported`, `DtsOutOfOrder`, `CompositionOffset`, `SampleDescriptionChange`, `MissingDuration`, `InvalidPacket` and `InvalidMux` for mux refusals.
+- `mp4::Muxer::set_edit_list`: replaces a track's edit list at any point before `finish`, so a single-pass writer sets an edit whose duration it learns at the end.
+- `mp4::Muxer::buffered_bytes` and `mkv::Muxer::buffered_bytes`: the packet bytes a muxer holds in memory, to check the `max_buffer` bound.
+- `Language::matroska_code` and `Language::mdhd_form`: the written form of a language in each container, for a hand-built track spec.
+- `mkv::tags_from_mp4` maps a track's `udta/name` box, the title FFmpeg writes as bare text, to a `TITLE` tag. It refused the box.
 
 ### Changed
 

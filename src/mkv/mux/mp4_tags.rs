@@ -2,13 +2,16 @@
 //!
 //! A text item with a known key becomes a `TagString`. A QuickTime `udta`
 //! text box holds a 16-bit length, a 16-bit language and the text. A named
-//! key keeps its name. Anything else has no Matroska form, and is refused.
+//! key keeps its name. A track's `udta/name` box holds its title as bare text.
+//! Anything else has no Matroska form, and is refused.
 
 use crate::error::Result;
 use crate::metadata::{MetadataItem, MetadataKey, MetadataScope, TagScope, TagTarget};
 use crate::mkv::mux::bytes::refuse;
 use crate::track::FourCc;
 
+/// The `udta` box that holds a track title as bare text, as FFmpeg writes it.
+const NAME_BOX: FourCc = FourCc(*b"name");
 /// `TargetTypeValue` 50: a whole movie, album or episode.
 const SEGMENT_TARGET: u64 = 50;
 
@@ -26,6 +29,7 @@ fn tag_name(key: FourCc) -> Option<&'static str> {
         b"\xA9wrt" => "COMPOSER",
         b"desc" => "DESCRIPTION",
         b"cprt" => "COPYRIGHT",
+        b"name" => "TITLE",
         _ => return None,
     })
 }
@@ -52,7 +56,7 @@ fn describe(item: &MetadataItem) -> String {
 /// An item that is not text, or a box key outside the known list, gives
 /// [`Error::Unsupported`](crate::Error::Unsupported), which names MP4. Filter
 /// the list first to copy the rest. Known keys: `©nam`, `©too`, `©swr`, `©ART`,
-/// `aART`, `©alb`, `©day`, `©cmt`, `©gen`, `©wrt`, `desc`, `cprt`.
+/// `aART`, `©alb`, `©day`, `©cmt`, `©gen`, `©wrt`, `desc`, `cprt`, `name`.
 pub fn tags_from_mp4(items: &[MetadataItem]) -> Result<Vec<MetadataItem>> {
     let mut out = Vec::with_capacity(items.len());
     for item in items {
@@ -65,6 +69,9 @@ pub fn tags_from_mp4(items: &[MetadataItem]) -> Result<Vec<MetadataItem>> {
             MetadataKey::Named(name) => std::str::from_utf8(name).ok().map(str::to_owned),
         };
         let text = match item.scope {
+            MetadataScope::Udta if item.key == MetadataKey::FourCc(NAME_BOX) => {
+                std::str::from_utf8(&item.value).ok()
+            }
             MetadataScope::Udta => udta_text(&item.value),
             _ => item.text(),
         };
@@ -125,6 +132,19 @@ mod tests {
         let tags = tags_from_mp4(&[item]).expect("the item maps");
         assert_eq!(tags[0].name(), Some("TITLE"));
         assert_eq!(tags[0].text(), Some("hi"));
+    }
+
+    #[test]
+    fn a_name_box_is_a_title_of_bare_text() {
+        let item = MetadataItem {
+            scope: MetadataScope::Udta,
+            key: MetadataKey::FourCc(NAME_BOX),
+            value: b"Tone".to_vec(),
+            data: Vec::new(),
+        };
+        let tags = tags_from_mp4(&[item]).expect("the item maps");
+        assert_eq!(tags[0].name(), Some("TITLE"));
+        assert_eq!(tags[0].text(), Some("Tone"));
     }
 
     #[test]

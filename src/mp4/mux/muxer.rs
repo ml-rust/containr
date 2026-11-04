@@ -46,6 +46,14 @@ pub struct Muxer<W> {
     broken: bool,
 }
 
+impl<W> Muxer<W> {
+    /// The packet bytes held in chunks not yet written. After each
+    /// [`Muxer::write_packet`] this is at most [`MuxOptions::max_buffer`].
+    pub fn buffered_bytes(&self) -> usize {
+        self.buffered
+    }
+}
+
 impl<W: Write + Seek> Muxer<W> {
     /// Start a movie on `writer`.
     pub fn new(mut writer: W, options: MuxOptions) -> Result<Self> {
@@ -146,6 +154,26 @@ impl<W: Write + Seek> Muxer<W> {
         self.buffered += state.push(packet, signed)?;
         self.started = true;
         self.drain(false)
+    }
+
+    /// Replace the edit list of `track`, at any point before
+    /// [`Muxer::finish`]. A single-pass writer learns a track's duration only
+    /// at its end, so it sets the edit that needs it last. Segment durations
+    /// convert to the movie timescale when the conversion is exact.
+    pub fn set_edit_list(&mut self, track: TrackId, list: &EditList) -> Result<()> {
+        self.check_usable()?;
+        let list = checked_edit_list(list, self.options.movie_timescale)?;
+        let slot = (track.0 as usize)
+            .checked_sub(1)
+            .filter(|&slot| slot < self.tracks.len())
+            .ok_or_else(|| Error::TrackNotFound {
+                track_id: track.0,
+                available: self.tracks.iter().map(|t| t.id).collect(),
+            })?;
+        if let Some(state) = self.tracks.get_mut(slot) {
+            state.spec.edit_list = list;
+        }
+        Ok(())
     }
 
     /// Write queued chunks while the interleave rule allows it. With

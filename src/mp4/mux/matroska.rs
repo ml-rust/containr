@@ -12,7 +12,6 @@
 //! integer, timestamps scale up by a whole factor.
 
 use crate::error::{Container, Error, Result};
-use crate::mac_language::terminology;
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo};
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::codec_config::{aac_esds, opus_dops, rotation_matrix};
@@ -286,11 +285,7 @@ fn audio_spec(
 /// `language` in the terminology form `mdhd` stores. Matroska holds the
 /// bibliographic form.
 fn mdhd_language(language: Language) -> Language {
-    language
-        .iso639()
-        .map(terminology)
-        .and_then(|code| <[u8; 3]>::try_from(code.as_bytes()).ok())
-        .map_or(language, Language::Iso639)
+    language.mdhd_form()
 }
 
 #[cfg(test)]

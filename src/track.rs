@@ -4,7 +4,11 @@ use std::fmt;
 
 use crate::colour::ContainerColour;
 use crate::edit::EditList;
+#[cfg(feature = "mkv")]
+use crate::mac_language::bibliographic;
 use crate::mac_language::macintosh_iso639;
+#[cfg(feature = "mp4")]
+use crate::mac_language::terminology;
 use crate::matroska::MatroskaTrack;
 use crate::metadata::MetadataItem;
 
@@ -164,6 +168,23 @@ impl Language {
             Self::Iso639(_) => self.iso639(),
             Self::Other(code) => macintosh_iso639(*code),
         }
+    }
+
+    /// The code a Matroska `Language` element stores: the bibliographic form,
+    /// such as `fre`, or `und` when [`Language::iso639_mapped`] gives none.
+    #[cfg(feature = "mkv")]
+    pub fn matroska_code(&self) -> &str {
+        bibliographic(self.iso639_mapped().unwrap_or("und"))
+    }
+
+    /// The language the MP4 `mdhd` box stores: a packed code in terminology
+    /// form, such as `fra`. Any other value stays as it is.
+    #[cfg(feature = "mp4")]
+    pub fn mdhd_form(self) -> Self {
+        self.iso639()
+            .map(terminology)
+            .and_then(|code| <[u8; 3]>::try_from(code.as_bytes()).ok())
+            .map_or(self, Self::Iso639)
     }
 }
 
@@ -394,6 +415,29 @@ mod tests {
         assert_eq!(Language::from_code(0x15C7).iso639_mapped(), Some("eng"));
         assert_eq!(Language::from_code(0x7FFF).iso639_mapped(), None);
         assert_eq!(Language::Other(0x0400).iso639_mapped(), None);
+    }
+
+    #[cfg(feature = "mkv")]
+    #[test]
+    fn matroska_code_is_bibliographic_with_und_for_no_code() {
+        assert_eq!(Language::Iso639(*b"fra").matroska_code(), "fre");
+        assert_eq!(Language::Iso639(*b"fre").matroska_code(), "fre");
+        assert_eq!(Language::Other(1).matroska_code(), "fre");
+        assert_eq!(Language::Other(0x7FFF).matroska_code(), "und");
+    }
+
+    #[cfg(feature = "mp4")]
+    #[test]
+    fn mdhd_form_is_terminology_and_keeps_other_values() {
+        assert_eq!(
+            Language::Iso639(*b"fre").mdhd_form(),
+            Language::Iso639(*b"fra")
+        );
+        assert_eq!(
+            Language::Iso639(*b"eng").mdhd_form(),
+            Language::Iso639(*b"eng")
+        );
+        assert_eq!(Language::Other(1).mdhd_form(), Language::Other(1));
     }
 
     #[test]

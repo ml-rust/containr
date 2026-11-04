@@ -338,3 +338,103 @@ fn large_mdat_header_only_appears_when_needed() {
         mdat.2
     );
 }
+
+#[test]
+fn a_single_pass_edit_list_set_after_the_packets_reads_back() {
+    let mut muxer =
+        Muxer::new(Cursor::new(Vec::new()), MuxOptions::default()).expect("the options are valid");
+    let video = muxer
+        .add_track(video_spec())
+        .expect("the video spec is valid");
+    for n in 0..3 {
+        let packet = PacketIn {
+            data: &[1, 2, 3],
+            pts: n * VIDEO_FRAME + VIDEO_FRAME,
+            dts: n * VIDEO_FRAME,
+            duration: Some(VIDEO_FRAME as u64),
+            sync: n == 0,
+        };
+        muxer.write_packet(video, &packet).expect("a video packet");
+    }
+    let edits = EditList {
+        movie_timescale: 1000,
+        entries: vec![
+            EditEntry {
+                segment_duration: 500,
+                media_time: EditEntry::EMPTY_MEDIA_TIME,
+                media_rate: EditEntry::NORMAL_RATE,
+            },
+            EditEntry {
+                segment_duration: 120,
+                media_time: VIDEO_FRAME,
+                media_rate: EditEntry::NORMAL_RATE,
+            },
+        ],
+    };
+    muxer
+        .set_edit_list(video, &edits)
+        .expect("the edit list is valid");
+    let bytes = muxer.finish().expect("the movie finishes").into_inner();
+    let input = Demuxer::open(Cursor::new(bytes)).expect("the movie reads back");
+    assert_eq!(input.tracks()[0].edit_list, edits);
+}
+
+#[test]
+fn set_edit_list_refuses_an_inexact_timescale_and_an_unknown_track() {
+    let options = MuxOptions {
+        movie_timescale: 7,
+        ..MuxOptions::default()
+    };
+    let mut muxer = Muxer::new(Cursor::new(Vec::new()), options).expect("the options are valid");
+    let video = muxer
+        .add_track(video_spec())
+        .expect("the video spec is valid");
+    let inexact = EditList {
+        movie_timescale: 1000,
+        entries: vec![EditEntry {
+            segment_duration: 1,
+            media_time: 0,
+            media_rate: EditEntry::NORMAL_RATE,
+        }],
+    };
+    let error = muxer
+        .set_edit_list(video, &inexact)
+        .expect_err("1 ms has no exact value at 7 ticks per second");
+    assert!(error.to_string().contains("movie_timescale"), "{error}");
+
+    let mut other =
+        Muxer::new(Cursor::new(Vec::new()), MuxOptions::default()).expect("the options are valid");
+    assert!(other.set_edit_list(video, &EditList::default()).is_err());
+}
+
+#[test]
+fn buffered_bytes_stay_within_the_bound_after_every_packet() {
+    let options = MuxOptions {
+        max_buffer: containr::mp4::MAX_CHUNK_BYTES,
+        ..MuxOptions::default()
+    };
+    let bound = options.max_buffer;
+    let mut muxer = Muxer::new(Cursor::new(Vec::new()), options).expect("the options are valid");
+    let video = muxer
+        .add_track(video_spec())
+        .expect("the video spec is valid");
+    // This track never sends a packet, so only the bound lets video out.
+    let _idle = muxer
+        .add_track(audio_spec())
+        .expect("the audio spec is valid");
+    let data = vec![1u8; 300 * 1024];
+    let mut peak = 0;
+    for n in 0..20 {
+        let packet = PacketIn {
+            data: &data,
+            pts: n * VIDEO_FRAME,
+            dts: n * VIDEO_FRAME,
+            duration: Some(VIDEO_FRAME as u64),
+            sync: true,
+        };
+        muxer.write_packet(video, &packet).expect("a video packet");
+        assert!(muxer.buffered_bytes() <= bound, "packet {n}");
+        peak = peak.max(muxer.buffered_bytes());
+    }
+    assert!(peak > 0, "the muxer holds packets before it writes them");
+}

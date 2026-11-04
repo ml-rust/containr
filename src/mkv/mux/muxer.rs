@@ -62,6 +62,19 @@ pub struct Muxer<W> {
     pub(super) broken: bool,
 }
 
+impl<W> Muxer<W> {
+    /// The packet bytes in memory: track queues and the open Cluster. After
+    /// each [`Muxer::write_packet`] this is at most [`MkvOptions::max_buffer`]
+    /// plus [`MkvOptions::cluster_bytes`] plus one block.
+    pub fn buffered_bytes(&self) -> usize {
+        let cluster = self
+            .cluster
+            .as_ref()
+            .map_or(0, |cluster| cluster.body.len());
+        self.buffered.saturating_add(cluster)
+    }
+}
+
 impl<W: Write + Seek> Muxer<W> {
     /// Start a file on `writer`.
     pub fn new(mut writer: W, options: MkvOptions) -> Result<Self> {

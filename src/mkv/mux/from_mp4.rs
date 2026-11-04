@@ -9,7 +9,6 @@
 //! `Video/Colour`.
 
 use crate::error::{Error, Result};
-use crate::mac_language::bibliographic;
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaVideo, Projection};
 use crate::mkv::mux::bytes::{invalid, refuse};
 use crate::mkv::mux::mp4_config::{audio_specific_config, opus_head};
@@ -104,7 +103,7 @@ pub(crate) fn is_tx3g(track: &Track) -> bool {
 /// it has none. The muxer writes `DocTypeReadVersion` 2, so a version 2 reader
 /// sees this element.
 fn language_of(language: Language) -> String {
-    bibliographic(language.iso639_mapped().unwrap_or("und")).to_owned()
+    language.matroska_code().to_owned()
 }
 
 fn video_spec(

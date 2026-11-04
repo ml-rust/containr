@@ -205,3 +205,27 @@ fn tracks_interleave_by_timestamp() {
         .collect();
     assert_eq!(times, [0, 0, 40, 40, 80, 80, 120, 120]);
 }
+
+#[test]
+fn buffered_bytes_stay_within_the_queue_and_cluster_bounds() {
+    let cluster_bytes = containr::mkv::MIN_CLUSTER_BYTES * 4;
+    let options = MkvOptions {
+        cluster_bytes,
+        max_buffer: cluster_bytes,
+        ..MkvOptions::default()
+    };
+    let mut muxer = Muxer::new(Cursor::new(Vec::new()), options).expect("options");
+    let track = muxer.add_track(video()).expect("a track");
+    // This track never sends a packet, so only the bound lets video out.
+    let mut idle = video();
+    idle.matroska.uid = Some(7);
+    let _idle = muxer.add_track(idle).expect("a track");
+    let data = vec![1u8; 512];
+    for n in 0..200 {
+        muxer
+            .write_packet(track, &frame(&data, n * 40, true))
+            .expect("a packet");
+        let bound = cluster_bytes * 2 + data.len() + 64;
+        assert!(muxer.buffered_bytes() <= bound, "packet {n}");
+    }
+}
