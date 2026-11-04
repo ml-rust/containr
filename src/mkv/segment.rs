@@ -53,7 +53,7 @@ struct Counts {
 
 /// Read a whole element whose header sits at `pos`, bounded by
 /// [`MAX_ELEMENT_SIZE`]. Returns the body offset and bytes.
-fn read_whole<R: Read + Seek>(
+pub(crate) fn read_whole<R: Read + Seek>(
     src: &mut Source<'_, R>,
     pos: u64,
     header: Header,
@@ -64,7 +64,7 @@ fn read_whole<R: Read + Seek>(
     Ok((body, src.read_body(body, size, path, MAX_ELEMENT_SIZE)?))
 }
 
-fn element(id: u32, offset: u64, body_offset: u64, body: &[u8]) -> Element<'_> {
+pub(crate) fn element(id: u32, offset: u64, body_offset: u64, body: &[u8]) -> Element<'_> {
     Element {
         id,
         offset,
@@ -73,8 +73,18 @@ fn element(id: u32, offset: u64, body_offset: u64, body: &[u8]) -> Element<'_> {
     }
 }
 
-/// Scan the input.
-pub(crate) fn scan<R: Read + Seek>(src: &mut Source<'_, R>) -> Result<Scan> {
+/// The EBML header of the input, and where its first Segment body lies.
+#[derive(Debug)]
+pub(crate) struct SegmentStart {
+    pub ebml: EbmlHeader,
+    /// The byte offset of the Segment body.
+    pub data: u64,
+    /// The offset the Segment size names. `u64::MAX` for an unknown size.
+    pub declared_end: u64,
+}
+
+/// Read the EBML header, and find the first Segment after it.
+pub(crate) fn open_segment<R: Read + Seek>(src: &mut Source<'_, R>) -> Result<SegmentStart> {
     let first = src
         .header_at(0, "EBML")?
         .ok_or_else(|| Error::mkv_missing("EBML"))?;
@@ -113,10 +123,24 @@ pub(crate) fn scan<R: Read + Seek>(src: &mut Source<'_, R>) -> Result<Scan> {
             }
         }
     };
-    let segment_data = pos + segment.len;
+    let data = pos + segment.len;
     let declared_end = segment
         .size
-        .map_or(u64::MAX, |size| segment_data.saturating_add(size));
+        .map_or(u64::MAX, |size| data.saturating_add(size));
+    Ok(SegmentStart {
+        ebml,
+        data,
+        declared_end,
+    })
+}
+
+/// Scan the input.
+pub(crate) fn scan<R: Read + Seek>(src: &mut Source<'_, R>) -> Result<Scan> {
+    let SegmentStart {
+        ebml,
+        data: segment_data,
+        declared_end,
+    } = open_segment(src)?;
     let end = declared_end.min(src.input_len);
 
     let mut scan = Scan {

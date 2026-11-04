@@ -38,7 +38,7 @@ Read and write MP4, MOV, Matroska, and WebM, with stream copy between them. Time
 
 </div>
 
-containr holds the container layer of the ml-rust media stack. It parses boxes and EBML elements into tracks, packets, metadata, chapters, and attachments, and it writes them back. [vidr](https://github.com/ml-rust/vidr) (video) and [voxr](https://github.com/ml-rust/voxr) (audio) are its intended users, and neither depends on it yet. Codecs live in those crates, so containr never decodes or encodes media.
+containr holds the container layer of the ml-rust media stack. It parses boxes and EBML elements into tracks, packets, metadata, chapters, and attachments, and it writes them back. [vidr](https://github.com/ml-rust/vidr) (video) and [voxr](https://github.com/ml-rust/voxr) (audio) depend on it. Codecs live in those crates, so containr never decodes or encodes media.
 
 ```text
 file → demux → packets with integer timestamps → your codec, or mux → file
@@ -79,6 +79,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 - Edit lists come raw, with the movie timescale. The caller applies them.
 - Metadata: `udta` children and `meta/ilst` items, raw. Chapters come from `chpl` and from QuickTime chapter tracks.
 - Fragmented MP4 is refused with `Error::Fragmented`.
+- `mp4::first_track_timing` reads the `mdhd` timescale and raw edit list of the first track of a kind, from `moov` alone, with no sample tables. It accepts a fragmented file.
 - Malformed input returns an error that names the box path. Every size from the file is checked before allocation.
 
 ## MP4/MOV mux
@@ -116,6 +117,7 @@ Each container is a Cargo feature. The default build holds the shared types only
 - `Cues`, `SeekHead` entries, chapters from every edition, and `Tags` come raw. A tag that targets a track's `TrackUID` sits in that track's metadata.
 - Attachments expose name, media type, UID, and the byte range of their data. `Demuxer::read_attachment` reads it.
 - A truncated file keeps every block before the cut. `Demuxer::truncated` reports the cut.
+- `mkv::first_track_timing` reads the `CodecDelay` and summed positive `DiscardPadding` of the first track of a kind, with no packet index.
 - Malformed input returns an error that names the element path, such as `Segment/Cluster[3]/SimpleBlock[7]`.
 
 ## MKV/WebM mux

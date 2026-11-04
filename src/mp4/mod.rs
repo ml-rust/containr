@@ -1,6 +1,7 @@
 //! MP4 and QuickTime MOV demux and mux.
 //!
 //! Fragmented MP4 (`moof`, `mvex`) is refused with [`Error::Fragmented`].
+//! [`first_track_timing`] reads only `moov` timing boxes, so it accepts one.
 //!
 //! [`Muxer`] writes `ftyp`, `mdat` and `moov`, or `moov` before `mdat` with
 //! [`MuxOptions::faststart`]. [`TrackSpec::copy_from`] and [`StreamCopy`]
@@ -18,6 +19,7 @@ mod mux;
 mod packets;
 mod sample_entry;
 mod tables;
+mod timing;
 mod trak;
 
 pub use chapters::{MAX_CHAPTER_SAMPLE, MAX_CHAPTERS};
@@ -29,3 +31,4 @@ pub use mux::{
     StreamCopy, TrackId, TrackSpec, VisualCodec,
 };
 pub use packets::{Packets, TrackPackets};
+pub use timing::{TrackTiming, first_track_timing};

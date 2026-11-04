@@ -208,7 +208,7 @@ impl<R> Demuxer<R> {
 
 /// Read a top-level box header at `pos`. Returns the type and the whole box
 /// length. A box of size 0 runs to the input end.
-fn top_level_header<R: Read + Seek>(
+pub(crate) fn top_level_header<R: Read + Seek>(
     reader: &mut R,
     pos: u64,
     input_len: u64,
@@ -249,7 +249,7 @@ fn top_level_header<R: Read + Seek>(
 }
 
 /// Read one whole top-level box, bounded by `limit`.
-fn read_box<R: Read + Seek>(
+pub(crate) fn read_box<R: Read + Seek>(
     reader: &mut R,
     pos: u64,
     box_len: u64,

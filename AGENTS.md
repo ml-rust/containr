@@ -30,8 +30,10 @@ This table is the single source of truth on what works. NEVER describe a roadmap
 | Crate, CI, release workflows | Implemented |
 | MP4/MOV demux (`mp4`): tracks, sample tables, packets, raw edit lists, `udta`/`meta` metadata, `chpl` and chapter-track chapters, `colr` colour tags (`nclx`, `nclc`) | Implemented |
 | Fragmented MP4 (`moof`) demux | Roadmap |
+| Track timing read with no sample tables (`mp4`): `mp4::first_track_timing`, the `mdhd` timescale and raw edit list of the first track of a kind. Reads only `moov`, so it accepts a fragmented file and yields no packets | Implemented |
 | MP4/MOV mux (`mp4`): `ftyp`, `mdat`, `moov`, faststart, chunk interleave, `stts`, `ctts`, `cslg`, `stsc`, `stsz`, `stco`/`co64`, `stss`, edit lists, `udta`/`meta`/`keys` metadata, `chpl` and chapter-track chapters, `nclx` `colr` colour tags, named refusals | Implemented |
 | MKV/WebM demux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters of known and unknown size, `SimpleBlock` and `BlockGroup`, Xiph, EBML and fixed lacing, `Cues`, `Chapters`, `Tags`, `Attachments`, `Video/Colour` tags | Implemented |
+| Track trims read with no packet index (`mkv`): `mkv::first_track_timing`, the `CodecDelay` and summed positive `DiscardPadding` of the first track of a kind. Reads only the EBML header, `Tracks` and Clusters | Implemented |
 | MKV/WebM mux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters with `SimpleBlock` and `BlockGroup`, explicit last-block `BlockDuration`, `DiscardPadding`, `Cues`, `Chapters`, `Tags`, `Attachments`, `Video/Colour` tags, WebM codec refusals, targets with no seek | Implemented |
 | Stream copy into MP4/MOV (`mp4`): `TrackSpec::copy_from` and `StreamCopy`, from MP4 tracks, and from Matroska H.264, HEVC, AV1, AAC, Opus and `S_TEXT/UTF8` tracks | Implemented |
 | Stream copy into MKV/WebM (`mkv`): `TrackSpec::copy_from` and `StreamCopy`, from Matroska tracks, and from MP4 `avc1`, `avc3`, `hvc1`, `hev1`, `av01`, `vp09`, `mp4a`, `Opus` and `tx3g` tracks. `StreamCopy::plan` takes whole nanoseconds only. `StreamCopy::plan_rounded` rounds to a named `TimestampScale` | Implemented |

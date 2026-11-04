@@ -25,7 +25,11 @@ fn single<'a>(children: &[RawBox<'a>], kind: &[u8; 4], path: &str) -> Result<Opt
     Ok(found)
 }
 
-fn require<'a>(children: &[RawBox<'a>], kind: &[u8; 4], path: &str) -> Result<RawBox<'a>> {
+pub(crate) fn require<'a>(
+    children: &[RawBox<'a>],
+    kind: &[u8; 4],
+    path: &str,
+) -> Result<RawBox<'a>> {
     single(children, kind, path)?
         .ok_or_else(|| Error::mp4_missing(format!("{path}/{}", FourCc(*kind))))
 }
@@ -138,7 +142,7 @@ fn mdhd_language(mdhd: &RawBox<'_>, path: &str) -> Result<Language> {
 }
 
 /// The `edts/elst` entries, raw.
-fn edits(children: &[RawBox<'_>], path: &str) -> Result<Vec<EditEntry>> {
+pub(crate) fn edits(children: &[RawBox<'_>], path: &str) -> Result<Vec<EditEntry>> {
     let Some(edts) = single(children, b"edts", path)? else {
         return Ok(Vec::new());
     };

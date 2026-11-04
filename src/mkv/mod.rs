@@ -37,6 +37,7 @@ mod packets;
 mod segment;
 mod source;
 mod tags;
+mod timing;
 mod track_media;
 mod tracks;
 
@@ -54,3 +55,4 @@ pub use mux::{
 };
 pub use packets::{Packets, TrackPackets};
 pub use segment::MAX_ELEMENT_SIZE;
+pub use timing::{TrackTiming, first_track_timing};
