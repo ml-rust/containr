@@ -8,7 +8,7 @@ use containr::{
     PixelAspect, SampleEntry, Timebase, Track, TrackKind, VideoInfo,
 };
 
-fn track(kind: TrackKind, timescale: u32, entries: Vec<SampleEntry>) -> Track {
+pub(super) fn track(kind: TrackKind, timescale: u32, entries: Vec<SampleEntry>) -> Track {
     Track {
         id: 3,
         kind,
@@ -29,7 +29,7 @@ fn track(kind: TrackKind, timescale: u32, entries: Vec<SampleEntry>) -> Track {
     }
 }
 
-fn entry(fourcc: &[u8; 4], config: Option<CodecConfig>) -> SampleEntry {
+pub(super) fn entry(fourcc: &[u8; 4], config: Option<CodecConfig>) -> SampleEntry {
     SampleEntry {
         fourcc: FourCc(*fourcc),
         raw: Vec::new(),
@@ -66,7 +66,7 @@ fn mapped(track: &Track) -> TrackSpec {
     TrackSpec::copy_from(track).unwrap_or_else(|err| panic!("{err}"))
 }
 
-fn assert_names_mp4(err: &Error, needle: &str) {
+pub(super) fn assert_names_mp4(err: &Error, needle: &str) {
     assert!(
         matches!(
             err,
@@ -82,7 +82,7 @@ fn assert_names_mp4(err: &Error, needle: &str) {
     assert!(err.to_string().contains("MP4/MOV"), "{err}");
 }
 
-fn packet(index: u64, pts: i64, duration: u64, size: u32) -> Packet {
+pub(super) fn packet(index: u64, pts: i64, duration: u64, size: u32) -> Packet {
     Packet {
         track_id: 3,
         index,
@@ -239,6 +239,7 @@ fn aac_at_48_khz_maps_but_its_frames_are_refused_by_name() {
     let err = StreamCopy::plan(&source, &packets).expect_err("1024/48000 s");
     assert_names_mp4(&err, "nanoseconds");
     assert!(err.to_string().contains("1/48000"), "{err}");
+    assert!(err.to_string().contains("plan_rounded"), "{err}");
 }
 
 #[test]
@@ -268,7 +269,7 @@ fn the_scale_divides_every_plan() {
     assert_eq!(StreamCopy::timestamp_scale(&[]), 1_000_000);
 }
 
-fn edit(segment_duration: u64, media_time: i64) -> EditEntry {
+pub(super) fn edit(segment_duration: u64, media_time: i64) -> EditEntry {
     EditEntry {
         segment_duration,
         media_time,

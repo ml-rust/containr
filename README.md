@@ -108,11 +108,37 @@ Each container is a Cargo feature. The default build holds the shared types only
 - Packets carry `pts` (Cluster `Timestamp` plus the block timestamp), duration, keyframe and discardable flags, `DiscardPadding`, byte offset, and size. `dts` is `None`: Matroska stores no decode timestamp.
 - Xiph, EBML and fixed lacing expand into one packet per frame. Each laced packet records its place in the lace.
 - Timestamps count in `TimestampScale` nanoseconds, as integers. `CodecDelay` and `DiscardPadding` come raw. The caller applies them.
+- A QuickTime Macintosh language code stays `Language::Other`, so `Language::iso639` gives `None`. `Language::iso639_mapped` maps it to ISO 639-2/T. Codes with no table entry give `None`: `0x7FFF`, 95 to 127, and above 138.
 - A Cluster of unknown size, as a live WebM writes it, ends at the next Segment child.
 - `Cues`, `SeekHead` entries, chapters from every edition, and `Tags` come raw. A tag that targets a track's `TrackUID` sits in that track's metadata.
 - Attachments expose name, media type, UID, and the byte range of their data. `Demuxer::read_attachment` reads it.
 - A truncated file keeps every block before the cut. `Demuxer::truncated` reports the cut.
 - Malformed input returns an error that names the element path, such as `Segment/Cluster[3]/SimpleBlock[7]`.
+
+## MKV/WebM mux
+
+- `Muxer::new`, `add_track`, `set_metadata`, `set_chapters`, `attach`, `write_packet`, `finish`. A target with no seek works through `NoSeek` with `MkvOptions::seekable` set to false.
+- `TrackSpec::copy_from` and `StreamCopy::plan` copy a Matroska track with every `MatroskaTrack` fact, or map an MP4 `avc1`, `avc3`, `hvc1`, `hev1`, `av01`, `vp09`, `mp4a`, `Opus` or `tx3g` track.
+- An MP4 track's language maps through `Language::iso639_mapped`, and a code with no table entry writes `und`. Matroska output uses the bibliographic form, such as `ger`, because version 2 readers expect it. MP4 output uses the terminology form, such as `deu`, as `mdhd` defines it.
+- An edit list maps to timing: an empty edit and a video `media_time` shift `pts`, an audio `media_time` becomes `CodecDelay`, and an audio end trim becomes `DiscardPadding`.
+- The default refuses. `StreamCopy::plan` and `Muxer::write_packet` take a value only when it is a whole number of nanoseconds and a whole multiple of `TimestampScale`. `StreamCopy::timestamp_scale` picks a scale that holds a set of tracks.
+- A repeated `TrackUID`, attachment UID or non-zero `ChapterUID` is refused.
+
+### Limits: what `TimestampScale` holds
+
+Matroska stores integer ticks of `TimestampScale`. It cannot hold 1024/48000 s or 1001/30000 s exactly, at any scale. So `StreamCopy::plan` refuses AAC at 44.1 or 48 kHz and 29.97 fps video in a 30000 timescale. The error names MP4, which holds them, and `StreamCopy::plan_rounded`.
+
+`StreamCopy::plan_rounded(track, packets, scale)` is the opt-in for MP4 tracks. `scale` is the `TimestampScale` in nanoseconds:
+
+- Each timestamp rounds on its own, from its exact source value, to the nearest tick, ties to even, in integer arithmetic. Its error stays at most half a tick, and no error accumulates across packets.
+- A block's duration is the distance to the next packet's rounded timestamp, in presentation order. The last packet in that order rounds from its exact end. So durations sum to the track's rounded end.
+- `CodecDelay`, `DiscardPadding` and `DefaultDuration` count in nanoseconds, so each rounds to the nearest nanosecond, ties to even. A block's duration can differ from `DefaultDuration` by a tick, and then the block states its own.
+- Decode order and `sync` flags stay as the source has them.
+- Two packets of one track on one tick are refused, and the error names a finer scale.
+- `StreamCopy::rounding` reports the scale and the largest absolute error, in nanoseconds, rounded up.
+- `StreamCopy::timestamp_scale` gives the largest value that divides every plan's scale, so rounded and exact plans share one output.
+
+A chapter time stays exact or refused. `plan_rounded` does not round chapters.
 
 ## Usage
 
@@ -246,6 +272,51 @@ fn main() -> Result<(), containr::Error> {
         if let Some(slot) = slot
             && let Some(block) = plans[slot].1.packet(&packet, &bytes)?
         {
+            muxer.write_packet(ids[slot].1, &block)?;
+        }
+    }
+    muxer.finish()?;
+    Ok(())
+}
+```
+
+Copy an MP4 file with 29.97 fps video or 48 kHz AAC into Matroska, rounded to 1 ms ticks:
+
+```rust,no_run
+use std::fs::File;
+
+use containr::mkv::{MkvOptions, Muxer, StreamCopy};
+use containr::mp4::Demuxer;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut input = Demuxer::open_path("input.mp4")?;
+    let mut plans = Vec::new();
+    for track in input.tracks().iter().filter(|track| !track.chapter_track) {
+        let packets = input.track_packets(track.id)?.collect::<Result<Vec<_>, _>>()?;
+        let plan = StreamCopy::plan_rounded(track, &packets, 1_000_000)?;
+        if let Some(rounding) = plan.rounding() {
+            println!("track {}: at most {} ns off", track.id, rounding.max_error_ns);
+        }
+        plans.push((track.id, plan));
+    }
+    let scales: Vec<StreamCopy> = plans.iter().map(|(_, plan)| plan.clone()).collect();
+    let options = MkvOptions {
+        timestamp_scale: StreamCopy::timestamp_scale(&scales),
+        ..MkvOptions::default()
+    };
+    let mut muxer = Muxer::new(File::create("output.mkv")?, options)?;
+    let mut ids = Vec::new();
+    for (source, plan) in &plans {
+        ids.push((*source, muxer.add_track(plan.spec.clone())?));
+    }
+    for packet in input.packets() {
+        let packet = packet?;
+        let slot = ids.iter().position(|(source, _)| *source == packet.track_id);
+        let Some(slot) = slot else {
+            continue;
+        };
+        let bytes = input.read_packet(&packet)?;
+        if let Some(block) = plans[slot].1.packet(&packet, &bytes)? {
             muxer.write_packet(ids[slot].1, &block)?;
         }
     }

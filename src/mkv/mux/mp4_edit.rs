@@ -8,8 +8,11 @@ use crate::track::{Track, TrackKind};
 /// What an edit list asks of the copy, in track ticks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct EditPlan {
-    /// The amount to add to every `pts`.
+    /// The amount to add to every `pts`. 0 from [`rounded_edit_plan`], which
+    /// states it in `shift_scaled` alone.
     pub shift: i64,
+    /// The same amount in track ticks, as `shift_scaled / movie_timescale`.
+    pub shift_scaled: i128,
     /// The media time the audio decoder drops: the `CodecDelay` in ticks.
     pub delay: i64,
     /// The end of the edit in media ticks, as `end_scaled / movie_timescale`.
@@ -39,6 +42,47 @@ fn no_form(track: &Track, why: String) -> Error {
 /// keep their values. For any other track, the frame at `media_time` presents
 /// first, so every `pts` moves down by it.
 pub(crate) fn edit_plan(track: &Track) -> Result<EditPlan> {
+    read_edits(track, true)
+}
+
+/// [`edit_plan`] for a rounded copy: an empty edit needs no whole number of
+/// track ticks, since `shift_scaled` states it exactly.
+pub(crate) fn rounded_edit_plan(track: &Track) -> Result<EditPlan> {
+    read_edits(track, false)
+}
+
+/// The shift in whole track ticks, or the refusal of one with a remainder.
+fn whole_shift(
+    track: &Track,
+    audio: bool,
+    start: i64,
+    delay_scaled: i128,
+    movie: i128,
+) -> Result<i64> {
+    if delay_scaled % movie != 0 {
+        return Err(no_form(
+            track,
+            format!(
+                "the empty edit of {delay_scaled} ticks over {movie} is no whole number of \
+                 track ticks. `StreamCopy::plan_rounded` rounds it"
+            ),
+        ));
+    }
+    let empty_ticks = i64::try_from(delay_scaled / movie).map_err(|_| {
+        no_form(
+            track,
+            format!("the empty edit of {delay_scaled} ticks over {movie} overflows"),
+        )
+    })?;
+    if audio {
+        return Ok(empty_ticks);
+    }
+    empty_ticks
+        .checked_sub(start)
+        .ok_or_else(|| no_form(track, format!("the media time {start} overflows 64 bits")))
+}
+
+fn read_edits(track: &Track, whole_ticks: bool) -> Result<EditPlan> {
     let EditList {
         movie_timescale,
         entries,
@@ -75,34 +119,23 @@ pub(crate) fn edit_plan(track: &Track) -> Result<EditPlan> {
         return Err(no_form(track, "the movie timescale is 0".to_owned()));
     }
     let delay_scaled = empty.map_or(0, |edit| i128::from(edit.segment_duration)) * timescale;
-    if delay_scaled % movie != 0 {
-        return Err(no_form(
-            track,
-            format!(
-                "the empty edit of {delay_scaled} ticks over {movie} is no whole number of \
-                 track ticks"
-            ),
-        ));
-    }
-    let empty_ticks = i64::try_from(delay_scaled / movie).map_err(|_| {
-        no_form(
-            track,
-            format!("the empty edit of {delay_scaled} ticks over {movie} overflows"),
-        )
-    })?;
     let audio = track.kind == TrackKind::Audio;
     let start = media.media_time;
-    let shift = if audio {
-        empty_ticks
+    let shift = if whole_ticks {
+        whole_shift(track, audio, start, delay_scaled, movie)?
     } else {
-        empty_ticks
-            .checked_sub(start)
-            .ok_or_else(|| no_form(track, format!("the media time {start} overflows 64 bits")))?
+        0
+    };
+    let shift_scaled = if audio {
+        delay_scaled
+    } else {
+        delay_scaled - i128::from(start) * movie
     };
     let end_scaled = (media.segment_duration != 0)
         .then(|| i128::from(start) * movie + i128::from(media.segment_duration) * timescale);
     Ok(EditPlan {
         shift,
+        shift_scaled,
         delay: if audio { start } else { 0 },
         end_scaled,
         movie_timescale: movie,

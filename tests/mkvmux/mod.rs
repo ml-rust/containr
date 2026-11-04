@@ -4,6 +4,8 @@ mod mapping;
 mod refusals;
 mod refusals_calls;
 mod robustness;
+mod rounded;
+mod rounded_sweep;
 mod roundtrip_mkv;
 mod roundtrip_mp4;
 mod support;

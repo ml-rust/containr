@@ -96,7 +96,8 @@ impl TrackState {
             }),
             Err(Inexact::NoNanoseconds) => Err(refuse(format!(
                 "the {what} {value} of track {} at {}/{} seconds per tick: that time is no whole \
-                 number of nanoseconds, and `TimestampScale` counts whole nanoseconds",
+                 number of nanoseconds, and `TimestampScale` counts whole nanoseconds. To round \
+                 a stream copy to the nearest tick, use `StreamCopy::plan_rounded`",
                 self.number, timebase.num, timebase.den
             ))),
             Err(Inexact::NotMultiple { nanos, divisor }) => Err(self.invalid(format!(

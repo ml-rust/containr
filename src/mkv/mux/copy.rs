@@ -4,6 +4,7 @@
 //! duration, flags and `DiscardPadding`. An MP4 track maps to its Matroska
 //! form, and every timestamp and duration must be a whole number of
 //! nanoseconds, or [`StreamCopy::plan`] refuses the track and names MP4.
+//! [`StreamCopy::plan_rounded`] is the opt-in that rounds instead.
 //!
 //! An MP4 edit list has no Matroska element, so the plan expresses it as
 //! [`edit_plan`] describes, and refuses one with no Matroska form. A frame the
@@ -11,18 +12,22 @@
 //! An audio edit that ends before the last packet does becomes `DiscardPadding`.
 //! A `tx3g` sample loses its 16-bit length, and an empty sample writes nothing.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::mkv::mux::bytes::{invalid, refuse};
+use crate::mkv::mux::copy_timing::{
+    exact_scale, matroska_timing, mp4_timing, set_codec_delay, uniform_duration,
+};
 use crate::mkv::mux::from_mp4::{is_tx3g, spec_from_mp4};
-use crate::mkv::mux::mp4_edit::{EditPlan, edit_plan};
+use crate::mkv::mux::mp4_edit::edit_plan;
+use crate::mkv::mux::rounded::{TimestampRounding, round_mp4};
 use crate::mkv::mux::spec::{PacketIn, TrackSpec};
-use crate::mkv::mux::timing::{gcd, nanos_of};
+use crate::mkv::mux::timing::gcd;
 use crate::packet::Packet;
-use crate::track::{Track, TrackKind};
+use crate::track::{Timebase, Track};
 
 /// The scale [`StreamCopy::timestamp_scale`] starts from: 1 ms, the Matroska
 /// default. A coarser scale holds fewer values.
-const PREFERRED_SCALE: u64 = 1_000_000;
+pub(super) const PREFERRED_SCALE: u64 = 1_000_000;
 
 impl TrackSpec {
     /// A spec from a demuxed Matroska or MP4 track.
@@ -45,7 +50,7 @@ impl TrackSpec {
     }
 }
 
-/// One packet's timing, in the track's ticks.
+/// One packet's timing, in ticks of the plan's [`TrackSpec::timebase`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PacketTiming {
     /// Presentation timestamp.
@@ -63,8 +68,11 @@ pub struct StreamCopy {
     pub spec: TrackSpec,
     /// One entry per source packet. `None` writes no block.
     timing: Vec<Option<PacketTiming>>,
-    /// The largest divisor of 1 ms that holds every value of this track.
+    /// The largest divisor of 1 ms that holds every value of this track, or
+    /// the scale a rounded plan names.
     scale: u64,
+    /// What a rounded plan did. `None` for an exact plan.
+    rounding: Option<TimestampRounding>,
     /// True when a sample holds a 16-bit length, then the text.
     framed_text: bool,
     track_id: u32,
@@ -73,16 +81,12 @@ pub struct StreamCopy {
 impl StreamCopy {
     /// Plan the copy of `track`. `packets` holds every packet of the track,
     /// in decode order, as the demuxer's `track_packets` yields them.
+    ///
+    /// Every value converts exactly, or the plan refuses the track. An MP4
+    /// value with no whole number of nanoseconds is refused, and the error
+    /// names MP4 and [`StreamCopy::plan_rounded`].
     pub fn plan(track: &Track, packets: &[Packet]) -> Result<Self> {
-        for (n, packet) in packets.iter().enumerate() {
-            if packet.track_id != track.id || packet.index != n as u64 {
-                return Err(invalid(format!(
-                    "`StreamCopy::plan` got packet {} of track {} at position {n} for track \
-                     {}. Pass the track's packets in decode order",
-                    packet.index, packet.track_id, track.id
-                )));
-            }
-        }
+        check_order(track, packets, "plan")?;
         let mut spec = TrackSpec::copy_from(track)?;
         let framed_text = track.matroska.is_none() && is_tx3g(track);
         let timing = if track.matroska.is_some() {
@@ -101,18 +105,79 @@ impl StreamCopy {
             spec,
             timing,
             scale,
+            rounding: None,
             framed_text,
             track_id: track.id,
         })
     }
 
-    /// The `TimestampScale` for a set of tracks: the largest divisor of 1 ms
-    /// that holds every value of every plan. Set it as
-    /// [`MkvOptions::timestamp_scale`](crate::mkv::MkvOptions::timestamp_scale).
-    pub fn timestamp_scale(plans: &[StreamCopy]) -> u64 {
-        plans.iter().fold(PREFERRED_SCALE, |scale, plan| {
-            u64::try_from(gcd(u128::from(scale), u128::from(plan.scale))).unwrap_or(1)
+    /// Plan the copy of an MP4 `track`, rounding to `scale` nanoseconds per
+    /// tick, 1 to 2^32 - 1. `packets` holds every packet of the track, in
+    /// decode order.
+    ///
+    /// Each timestamp rounds on its own, from its exact source value, to the
+    /// nearest tick, ties to even. Its error stays at most half a tick, and no
+    /// error accumulates across packets. A packet's duration is the distance
+    /// to the next packet in presentation order. The last packet in that
+    /// order rounds from its exact end. Decode order and `sync` flags stay as
+    /// the source has them.
+    ///
+    /// `CodecDelay`, `DiscardPadding` and `DefaultDuration` count in
+    /// nanoseconds, so each rounds to the nearest nanosecond, ties to even.
+    /// The edit list's start delay rounds with the timestamps.
+    ///
+    /// The refusals name the input: two packets on one tick, with a finer
+    /// scale to use, a Matroska track, and a scale out of range. The spec's
+    /// timebase becomes `scale`, and [`PacketTiming`] counts in that tick.
+    /// [`StreamCopy::rounding`] reports the largest error.
+    pub fn plan_rounded(track: &Track, packets: &[Packet], scale: u64) -> Result<Self> {
+        check_order(track, packets, "plan_rounded")?;
+        let tick = u32::try_from(scale).ok().filter(|&tick| tick > 0).ok_or_else(|| {
+            invalid(format!(
+                "`StreamCopy::plan_rounded` got scale {scale}. Use 1 to {} nanoseconds per tick",
+                u32::MAX
+            ))
+        })?;
+        if track.matroska.is_some() {
+            return Err(invalid(format!(
+                "`StreamCopy::plan_rounded` got Matroska track {}. It rounds MP4 tracks. Use \
+                 `StreamCopy::plan`",
+                track.id
+            )));
+        }
+        let mut spec = TrackSpec::copy_from(track)?;
+        let framed_text = is_tx3g(track);
+        let rounded = round_mp4(track, framed_text, packets, tick)?;
+        spec.timebase = Timebase::from_nanoseconds(tick);
+        spec.matroska.codec_delay = rounded.codec_delay;
+        spec.matroska.default_duration = rounded.default_duration;
+        Ok(Self {
+            spec,
+            timing: rounded.timing,
+            scale,
+            rounding: Some(rounded.rounding),
+            framed_text,
+            track_id: track.id,
         })
+    }
+
+    /// The `TimestampScale` for a set of tracks. Set it as
+    /// [`MkvOptions::timestamp_scale`](crate::mkv::MkvOptions::timestamp_scale).
+    ///
+    /// It is the largest value that divides the scale of every plan. An exact
+    /// plan's scale is the largest divisor of 1 ms that holds its values. A
+    /// rounded plan's scale is the one the caller named. With no plans, it is
+    /// 1 ms.
+    pub fn timestamp_scale(plans: &[StreamCopy]) -> u64 {
+        let scale = plans.iter().fold(0u64, |scale, plan| {
+            u64::try_from(gcd(u128::from(scale), u128::from(plan.scale))).unwrap_or(1)
+        });
+        if scale == 0 { PREFERRED_SCALE } else { scale }
+    }
+
+    /// What [`StreamCopy::plan_rounded`] did. `None` for an exact plan.
+    pub fn rounding(&self) -> Option<TimestampRounding> {
+        self.rounding
     }
 
     /// The timing of every packet, in decode order. `None` writes no block.
@@ -154,6 +219,20 @@ impl StreamCopy {
     }
 }
 
+/// Refuse packets that are not the track's own, in decode order.
+fn check_order(track: &Track, packets: &[Packet], call: &str) -> Result<()> {
+    for (n, packet) in packets.iter().enumerate() {
+        if packet.track_id != track.id || packet.index != n as u64 {
+            return Err(invalid(format!(
+                "`StreamCopy::{call}` got packet {} of track {} at position {n} for track {}. \
+                 Pass the track's packets in decode order",
+                packet.index, packet.track_id, track.id
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// The text of a `tx3g` sample. Style boxes after the text have no
 /// `S_TEXT/UTF8` form.
 fn cue_text(data: &[u8], track_id: u32, index: u64) -> Result<&[u8]> {
@@ -173,189 +252,4 @@ fn cue_text(data: &[u8], track_id: u32, index: u64) -> Result<&[u8]> {
         )));
     }
     Ok(text)
-}
-
-fn matroska_timing(track: &Track, packets: &[Packet]) -> Result<Vec<Option<PacketTiming>>> {
-    packets
-        .iter()
-        .map(|packet| {
-            if packet.pts < 0 {
-                return Err(negative(track, packet.index, packet.pts));
-            }
-            Ok(Some(PacketTiming {
-                pts: packet.pts,
-                duration: packet.duration,
-                discard_padding: packet.discard_padding,
-            }))
-        })
-        .collect()
-}
-
-fn negative(track: &Track, index: u64, pts: i64) -> Error {
-    refuse(format!(
-        "packet {index} of track {track} at pts {pts}: a Matroska block timestamp is never \
-         negative, and an MP4 edit list holds a frame the edit cuts",
-        track = track.id
-    ))
-}
-
-fn mp4_timing(
-    track: &Track,
-    edit: &EditPlan,
-    framed_text: bool,
-    packets: &[Packet],
-) -> Result<Vec<Option<PacketTiming>>> {
-    let mut out = Vec::with_capacity(packets.len());
-    // The last block's slot, and the largest pts + duration, before the shift.
-    let mut last = None;
-    let mut media_end = 0i128;
-    for (n, packet) in packets.iter().enumerate() {
-        if packet.description_index != 1 {
-            return Err(Error::SampleDescriptionChange {
-                track_id: track.id,
-                descriptions: u64::from(packet.description_index),
-            });
-        }
-        if framed_text && packet.size == 2 {
-            out.push(None);
-            continue;
-        }
-        let pts = packet
-            .pts
-            .checked_add(edit.shift)
-            .ok_or_else(|| negative(track, packet.index, packet.pts))?;
-        if pts < 0 {
-            return Err(negative(track, packet.index, pts));
-        }
-        let end = i128::from(packet.pts) + i128::from(packet.duration.unwrap_or(0));
-        media_end = media_end.max(end);
-        last = Some(n);
-        out.push(Some(PacketTiming {
-            pts,
-            duration: packet.duration,
-            discard_padding: None,
-        }));
-    }
-    let padding = end_trim(track, edit, media_end)?;
-    if let (Some(padding), Some(slot)) = (padding, last)
-        && let Some(Some(timing)) = out.get_mut(slot)
-    {
-        let covered = timing
-            .duration
-            .is_some_and(|duration| i128::from(duration) >= i128::from(padding.ticks));
-        if !covered {
-            return Err(refuse(format!(
-                "the edit list of track {} cuts {} ticks from the end, more than its last \
-                 packet lasts: `DiscardPadding` trims one block",
-                track.id, padding.ticks
-            )));
-        }
-        timing.discard_padding = Some(padding.nanos);
-    }
-    Ok(out)
-}
-
-/// A trim of the last packet.
-struct EndTrim {
-    ticks: i64,
-    nanos: i64,
-}
-
-/// The trim an edit asks for at the end of the media. A gap of up to one
-/// movie tick is the rounding of the edit's own duration, and trims nothing.
-fn end_trim(track: &Track, edit: &EditPlan, media_end: i128) -> Result<Option<EndTrim>> {
-    let Some(end_scaled) = edit.end_scaled else {
-        return Ok(None);
-    };
-    let movie = edit.movie_timescale;
-    let gap_scaled = media_end * movie - end_scaled;
-    if gap_scaled <= i128::from(track.timebase.den) {
-        return Ok(None);
-    }
-    if track.kind != TrackKind::Audio {
-        return Err(refuse(format!(
-            "the edit list of track {}: it ends before the last packet does, and Matroska trims \
-             the end of audio only",
-            track.id
-        )));
-    }
-    let nanos = (gap_scaled % movie == 0)
-        .then(|| nanos_of(gap_scaled / movie, track.timebase))
-        .flatten()
-        .and_then(|nanos| i64::try_from(nanos).ok());
-    let ticks = i64::try_from(gap_scaled / movie).ok();
-    let (Some(nanos), Some(ticks)) = (nanos, ticks) else {
-        return Err(refuse(format!(
-            "the edit list of track {}: its end trim of {gap_scaled} over {movie} ticks at {} \
-             ticks per second is no whole number of nanoseconds",
-            track.id, track.timebase.den
-        )));
-    };
-    Ok(Some(EndTrim { ticks, nanos }))
-}
-
-/// Refuse a value with no whole number of nanoseconds, and name it.
-fn exact_nanos(track: &Track, what: &str, value: i128) -> Result<i128> {
-    nanos_of(value, track.timebase).ok_or_else(|| {
-        refuse(format!(
-            "{what} {value} of track {} at {}/{} seconds per tick: that time is no whole number \
-             of nanoseconds, and `TimestampScale` counts whole nanoseconds. No scale holds it \
-             exactly",
-            track.id, track.timebase.num, track.timebase.den
-        ))
-    })
-}
-
-/// `CodecDelay` from the priming an audio edit drops.
-fn set_codec_delay(track: &Track, edit: &EditPlan, spec: &mut TrackSpec) -> Result<()> {
-    if edit.delay <= 0 {
-        return Ok(());
-    }
-    let nanos = exact_nanos(track, "the edit list media time", i128::from(edit.delay))?;
-    spec.matroska.codec_delay = u64::try_from(nanos).map_err(|_| {
-        invalid(format!(
-            "track {}: the `CodecDelay` of {nanos} ns exceeds 64 bits. Use a shorter edit",
-            track.id
-        ))
-    })?;
-    Ok(())
-}
-
-/// `DefaultDuration` when every block but the last lasts the same, in whole
-/// nanoseconds. A track of one block stores no default.
-fn uniform_duration(track: &Track, timing: &[Option<PacketTiming>]) -> Result<Option<u64>> {
-    let mut blocks = timing.iter().flatten();
-    let Some(first) = blocks.next() else {
-        return Ok(None);
-    };
-    let mut rest = blocks.peekable();
-    if rest.peek().is_none() {
-        return Ok(None);
-    }
-    let Some(duration) = first.duration.filter(|&duration| duration > 0) else {
-        return Ok(None);
-    };
-    // Every block but the last matches.
-    while let Some(block) = rest.next() {
-        if rest.peek().is_some() && block.duration != Some(duration) {
-            return Ok(None);
-        }
-    }
-    let nanos = exact_nanos(track, "the duration", i128::from(duration))?;
-    Ok(u64::try_from(nanos).ok())
-}
-
-/// The largest divisor of 1 ms that holds every `pts` and duration of a track,
-/// or the refusal of the first value no scale holds.
-fn exact_scale(track: &Track, timing: &[Option<PacketTiming>]) -> Result<u64> {
-    let mut scale = u128::from(PREFERRED_SCALE);
-    for block in timing.iter().flatten() {
-        let pts = exact_nanos(track, "the pts", i128::from(block.pts))?;
-        scale = gcd(scale, pts.unsigned_abs());
-        if let Some(duration) = block.duration {
-            let nanos = exact_nanos(track, "the duration", i128::from(duration))?;
-            scale = gcd(scale, nanos.unsigned_abs());
-        }
-    }
-    Ok(u64::try_from(scale).unwrap_or(1))
 }

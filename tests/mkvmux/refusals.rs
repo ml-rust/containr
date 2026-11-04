@@ -286,6 +286,29 @@ fn metadata_must_be_named_tags_that_name_held_uids() {
 }
 
 #[test]
+fn a_repeated_chapter_uid_is_refused_by_name() {
+    let chapter = |start, uid| Chapter {
+        start,
+        duration: None,
+        timescale: 1000,
+        title: "c".to_owned(),
+        source: ChapterSource::Matroska {
+            edition_uid: None,
+            chapter_uid: uid,
+            depth: 0,
+        },
+    };
+    let err = muxer(MkvOptions::default())
+        .set_chapters(vec![chapter(0, 9), chapter(5, 8), chapter(10, 9)])
+        .expect_err("UID 9 repeats");
+    let text = err.to_string();
+    assert!(matches!(err, Error::InvalidMux { .. }), "{text}");
+    assert!(text.contains("`ChapterUID` 9"), "{text}");
+    assert!(text.contains("chapter 2"), "{text}");
+    assert!(text.contains("chapter 0"), "{text}");
+}
+
+#[test]
 fn chapters_with_no_exact_time_are_refused() {
     let chapter = Chapter {
         start: 1,

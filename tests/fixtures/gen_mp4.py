@@ -223,6 +223,23 @@ def main():
         "aac_32k.mp4",
         ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000"] + DURATION + AAC + ["-ar", "32000"],
     )
+    # 1001/30000 s and 1024/48000 s are no whole number of nanoseconds, so this
+    # file copies to Matroska only through StreamCopy::plan_rounded.
+    make(
+        "ntsc_h264_aac.mp4",
+        ["-f", "lavfi", "-i", "testsrc=size=96x64:rate=30000/1001"] + AUDIO_SRC + DURATION + H264 + AAC
+        + ["-video_track_timescale", "30000"],
+    )
+    # A MOV stores these tags as Macintosh language codes. The last stream has
+    # no tag, which is code 0x7FFF. 32 kHz keeps the AAC timestamps exact.
+    aac_32k = ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000"]
+    make(
+        "languages.mov",
+        VIDEO_SRC + aac_32k + DURATION + H264 + AAC + ["-ar", "32000"]
+        + ["-map", "0:v", "-map", "1:a", "-map", "1:a", "-map", "1:a", "-map", "1:a"]
+        + ["-metadata:s:v:0", "language=jpn", "-metadata:s:a:0", "language=eng"]
+        + ["-metadata:s:a:1", "language=fra", "-metadata:s:a:2", "language=spa"],
+    )
     available = encoders()
     if "libvpx-vp9" in available:
         make(

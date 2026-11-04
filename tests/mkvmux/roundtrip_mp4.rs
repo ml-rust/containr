@@ -59,12 +59,18 @@ fn check_track(name: &str, remux: &Remux, copied: &Copied) {
         .unwrap_or_else(|| panic!("{what}: no Matroska facts"));
     let source = &copied.source;
     assert_eq!(ours.kind, source.kind, "{what}: kind");
-    // QuickTime code 0x7FFF means unspecified, which Matroska spells `und`.
-    let expected_language = match source.language {
-        Language::Other(0x7FFF) => Language::Iso639(*b"und"),
-        language => language,
+    // A Macintosh code maps through the table. One with no entry, 0x7FFF
+    // included, has no language, which Matroska spells `und`.
+    // `languages.mov` holds one code with two forms: MP4 `fra`, Matroska `fre`.
+    let expected_language = match source.language.iso639_mapped().unwrap_or("und") {
+        "fra" => "fre",
+        code => code,
     };
-    assert_eq!(ours.language, expected_language, "{what}: language");
+    assert_eq!(
+        ours.language.iso639(),
+        Some(expected_language),
+        "{what}: language"
+    );
     let expected_codec = match source.codec().map(|c| c.to_string()).as_deref() {
         Some("avc1") => "V_MPEG4/ISO/AVC",
         Some("hvc1") => "V_MPEGH/ISO/HEVC",
@@ -253,6 +259,41 @@ fn round_trip_aac_at_48_khz_is_refused_by_name_and_the_video_stays() {
         assert!(err.to_string().contains("nanoseconds"), "{name}: {err}");
         assert_eq!(remux.scale, 1_000_000, "{name}: video at 25 fps");
     }
+}
+
+#[test]
+fn round_trip_mov_keeps_macintosh_languages() {
+    let Some(remux) = check("languages.mov", 0) else {
+        return;
+    };
+    let output = open_mkv(&remux.bytes);
+    let languages: Vec<Option<&str>> = output
+        .tracks()
+        .iter()
+        .map(|track| track.language.iso639())
+        .collect();
+    assert_eq!(
+        languages,
+        [
+            Some("jpn"),
+            Some("eng"),
+            Some("fre"),
+            Some("spa"),
+            Some("und")
+        ]
+    );
+    let codes: Vec<Language> = remux.copied.iter().map(|c| c.source.language).collect();
+    assert_eq!(
+        codes,
+        [
+            Language::Other(11),
+            Language::Other(0),
+            Language::Other(1),
+            Language::Other(6),
+            Language::Other(0x7FFF)
+        ],
+        "the fixture holds Macintosh codes, so the test reaches the table"
+    );
 }
 
 #[test]

@@ -102,13 +102,24 @@ pub fn copy_mkv(name: &str, input: &[u8], tweak: impl FnOnce(&mut MkvOptions)) -
 /// Remux an MP4 or MOV fixture: every track that maps but the chapter track,
 /// the movie tags and the chapters. `None` when the generator has not run.
 pub fn remux_mp4(name: &str) -> Option<Remux> {
+    remux_with(name, StreamCopy::plan)
+}
+
+/// [`remux_mp4`] with every track rounded to `scale` nanoseconds per tick.
+pub fn remux_mp4_rounded(name: &str, scale: u64) -> Option<Remux> {
+    remux_with(name, |track, packets| {
+        StreamCopy::plan_rounded(track, packets, scale)
+    })
+}
+
+fn remux_with(name: &str, plan: impl Fn(&Track, &[Packet]) -> Result<StreamCopy>) -> Option<Remux> {
     let fixture = common::fixture(name)?;
     let mut input = open_mp4(&fixture.bytes);
     let mut planned = Vec::new();
     let mut refused = Vec::new();
     for track in input.tracks().iter().filter(|track| !track.chapter_track) {
         let packets = collect(name, ok(name, input.track_packets(track.id)));
-        match StreamCopy::plan(track, &packets) {
+        match plan(track, &packets) {
             Ok(plan) => planned.push((track.clone(), plan, packets)),
             Err(err @ Error::Unsupported { .. }) => refused.push((track.id, err)),
             Err(err) => panic!("{name}: track {}: {err}", track.id),
@@ -179,4 +190,12 @@ pub fn write_output(name: &str, bytes: &[u8]) -> PathBuf {
     let path = dir.join(name);
     std::fs::write(&path, bytes).unwrap_or_else(|err| panic!("writing {}: {err}", path.display()));
     path
+}
+
+/// True when `ticks` of `scale` ns lie within half a tick of `value /
+/// per_second` seconds.
+pub fn within_half_a_tick(ticks: i128, scale: u64, value: i128, per_second: i128) -> bool {
+    let scale = i128::from(scale);
+    let off = (ticks * scale * per_second - value * 1_000_000_000).abs();
+    off * 2 <= scale * per_second
 }

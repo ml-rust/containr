@@ -1,6 +1,6 @@
 # containr — Agent Guidelines
 
-Media containers for Rust: MP4/MOV and MKV/WebM demux, mux and edit lists. vidr (video) and voxr (audio) both build on it.
+Media containers for Rust: MP4/MOV and MKV/WebM demux, mux and edit lists. Shared by vidr (video) and voxr (audio).
 
 ## Placement
 
@@ -13,8 +13,8 @@ Media containers for Rust: MP4/MOV and MKV/WebM demux, mux and edit lists. vidr 
 - Library only. No binary, no CLI.
 - Each container is a Cargo feature: `mp4`, `mkv`. The default build is minimal.
 - Timestamps are integers in the track timescale. NEVER convert a timestamp to floating point.
-- Demux exposes raw edit lists. The caller applies them. NEVER apply an edit list silently.
-- Stream copy keeps packet bytes, timestamps, durations and codec configuration unchanged.
+- Demux exposes raw edit lists. The caller applies them. NEVER apply an edit list silently. `mkv::StreamCopy` maps an MP4 edit list into its plan, visible in `timing()`, since Matroska has no edit list.
+- Stream copy keeps packet bytes, timestamps, durations and codec configuration unchanged. The one exception is `mkv::StreamCopy::plan_rounded`, an explicit opt-in. NEVER round by default.
 - A mux refuses a stream the container cannot hold, and the error names the container that can.
 - Demux on malformed input returns an error. NEVER panic, and NEVER allocate from a size the file declares without a bound.
 - Every writer has a round-trip test: write, read back, compare packets and metadata. A test that reads only files we wrote proves nothing; also read files produced by another muxer.
@@ -34,7 +34,7 @@ This table is the single source of truth on what works. NEVER describe a roadmap
 | MKV/WebM demux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters of known and unknown size, `SimpleBlock` and `BlockGroup`, Xiph, EBML and fixed lacing, `Cues`, `Chapters`, `Tags`, `Attachments` | Implemented |
 | MKV/WebM mux (`mkv`): EBML header, `SeekHead`, `Info`, `Tracks`, Clusters with `SimpleBlock` and `BlockGroup`, explicit last-block `BlockDuration`, `DiscardPadding`, `Cues`, `Chapters`, `Tags`, `Attachments`, WebM codec refusals, targets with no seek | Implemented |
 | Stream copy into MP4/MOV (`mp4`): `TrackSpec::copy_from` and `StreamCopy`, from MP4 tracks, and from Matroska H.264, HEVC, AV1, AAC, Opus and `S_TEXT/UTF8` tracks | Implemented |
-| Stream copy into MKV/WebM (`mkv`): `TrackSpec::copy_from` and `StreamCopy`, from Matroska tracks, and from MP4 `avc1`, `avc3`, `hvc1`, `hev1`, `av01`, `vp09`, `mp4a`, `Opus` and `tx3g` tracks whose timestamps are whole nanoseconds | Implemented |
+| Stream copy into MKV/WebM (`mkv`): `TrackSpec::copy_from` and `StreamCopy`, from Matroska tracks, and from MP4 `avc1`, `avc3`, `hvc1`, `hev1`, `av01`, `vp09`, `mp4a`, `Opus` and `tx3g` tracks. `StreamCopy::plan` takes whole nanoseconds only. `StreamCopy::plan_rounded` rounds to a named `TimestampScale` | Implemented |
 
 Update this table in the same change that implements a capability.
 

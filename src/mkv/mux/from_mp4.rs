@@ -8,6 +8,7 @@
 //! is refused, and the error names MP4.
 
 use crate::error::{Error, Result};
+use crate::mac_language::bibliographic;
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaVideo, Projection};
 use crate::mkv::mux::bytes::{invalid, refuse};
 use crate::mkv::mux::mp4_config::{audio_specific_config, opus_head};
@@ -98,8 +99,11 @@ pub(crate) fn is_tx3g(track: &Track) -> bool {
     track.codec().is_some_and(|fourcc| &fourcc.0 == b"tx3g")
 }
 
+/// The `Language` value: the track's code in bibliographic form, or `und` when
+/// it has none. The muxer writes `DocTypeReadVersion` 2, so a version 2 reader
+/// sees this element.
 fn language_of(language: Language) -> String {
-    language.iso639().unwrap_or("und").to_owned()
+    bibliographic(language.iso639_mapped().unwrap_or("und")).to_owned()
 }
 
 fn video_spec(
@@ -242,6 +246,16 @@ mod tests {
             sample_count: 0,
             matroska: None,
         }
+    }
+
+    #[test]
+    fn languages_map_through_the_macintosh_table() {
+        assert_eq!(language_of(Language::Other(0)), "eng");
+        assert_eq!(language_of(Language::Other(2)), "ger");
+        assert_eq!(language_of(Language::Iso639(*b"fra")), "fre");
+        assert_eq!(language_of(Language::Iso639(*b"fre")), "fre");
+        assert_eq!(language_of(Language::Other(95)), "und");
+        assert_eq!(language_of(Language::Other(0x7FFF)), "und");
     }
 
     #[test]

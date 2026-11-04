@@ -14,6 +14,7 @@ pub mod metadata;
 pub mod packet;
 pub mod track;
 
+mod mac_language;
 #[cfg(any(feature = "mp4", feature = "mkv"))]
 mod read;
 

@@ -67,7 +67,7 @@ pub struct MkvOptions {
     /// timestamps and durations count in it, and a value that does not land
     /// on a whole tick is refused.
     /// [`StreamCopy::timestamp_scale`](crate::mkv::StreamCopy::timestamp_scale)
-    /// picks a scale that holds a stream copy exactly.
+    /// picks a scale that holds a stream copy.
     pub timestamp_scale: u64,
     /// The longest Cluster, in milliseconds of block time.
     pub cluster_duration_ms: u32,

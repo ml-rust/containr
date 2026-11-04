@@ -3,6 +3,7 @@
 use std::fmt;
 
 use crate::edit::EditList;
+use crate::mac_language::macintosh_iso639;
 use crate::matroska::MatroskaTrack;
 use crate::metadata::MetadataItem;
 
@@ -142,11 +143,25 @@ impl Language {
         }
     }
 
-    /// The ISO 639-2/T code as a string, when the track has one.
+    /// The packed ISO 639-2/T code as a string, when the track has one. A
+    /// Macintosh code gives `None`. [`Language::iso639_mapped`] maps it.
     pub fn iso639(&self) -> Option<&str> {
         match self {
             Self::Iso639(letters) => std::str::from_utf8(letters).ok(),
             Self::Other(_) => None,
+        }
+    }
+
+    /// The ISO 639-2/T code, with a Macintosh code mapped through the
+    /// QuickTime table.
+    ///
+    /// `None` when the table has no entry: `0x7FFF` (unspecified), a code
+    /// from 95 to 127, a code above 138, or a packed code with letters
+    /// outside `a`-`z`.
+    pub fn iso639_mapped(&self) -> Option<&str> {
+        match self {
+            Self::Iso639(_) => self.iso639(),
+            Self::Other(code) => macintosh_iso639(*code),
         }
     }
 }
@@ -355,6 +370,16 @@ mod tests {
     fn language_keeps_macintosh_codes() {
         assert_eq!(Language::from_code(0), Language::Other(0));
         assert_eq!(Language::from_code(0x7FFF), Language::Other(0x7FFF));
+    }
+
+    #[test]
+    fn iso639_keeps_its_contract_and_iso639_mapped_adds_the_table() {
+        let english = Language::from_code(0);
+        assert_eq!(english.iso639(), None);
+        assert_eq!(english.iso639_mapped(), Some("eng"));
+        assert_eq!(Language::from_code(0x15C7).iso639_mapped(), Some("eng"));
+        assert_eq!(Language::from_code(0x7FFF).iso639_mapped(), None);
+        assert_eq!(Language::Other(0x0400).iso639_mapped(), None);
     }
 
     #[test]

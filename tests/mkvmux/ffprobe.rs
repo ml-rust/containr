@@ -9,7 +9,7 @@ use std::process::Command;
 use serde_json::Value;
 
 use crate::common::{self, Fixture, array, mkv_probe, stream_track_id, text};
-use crate::mkvmux::support::{Remux, copy_mkv, remux_mp4, write_output};
+use crate::mkvmux::support::{Remux, copy_mkv, remux_mp4, remux_mp4_rounded, write_output};
 
 /// The lines `ffmpeg -v error -i path -f null -` logs. `None`, with a notice,
 /// when ffmpeg is not on PATH.
@@ -117,12 +117,17 @@ fn check_mp4(name: &str) {
     let Some(remux) = remux_mp4(name) else {
         return;
     };
+    check_remux(name, &remux);
+}
+
+/// Read the remux back with ffprobe and ffmpeg, and compare stream facts.
+fn check_remux(name: &str, remux: &Remux) {
     let Remux {
         bytes,
         copied,
         fixture,
         ..
-    } = &remux;
+    } = remux;
     let output = format!("mp4_{name}.mkv");
     let Some(probe) = read_back(&output, bytes, &fixture.path) else {
         return;
@@ -245,4 +250,45 @@ fn ffprobe_reads_mp4_chapters() {
 #[test]
 fn ffprobe_reads_mp4_chapters_mov() {
     check_mp4("chapters_mov.mov");
+}
+
+#[test]
+fn ffprobe_reads_mp4_ntsc_h264_aac_rounded() {
+    let Some(remux) = remux_mp4_rounded("ntsc_h264_aac.mp4", 1_000_000) else {
+        return;
+    };
+    assert!(remux.refused.is_empty(), "{:?}", remux.refused);
+    check_remux("ntsc_h264_aac.mp4", &remux);
+}
+
+/// A second reader agrees on the language: ffprobe on the MOV and on the copy.
+#[test]
+fn ffprobe_reads_the_language_of_a_mov_as_the_source_has_it() {
+    let name = "languages.mov";
+    let Some(remux) = remux_mp4(name) else {
+        return;
+    };
+    let Some(probe) = read_back("mp4_languages.mkv", &remux.bytes, &remux.fixture.path) else {
+        return;
+    };
+    let ours = array(&probe, "streams");
+    let theirs = array(&remux.fixture.probe, "streams");
+    assert_eq!(ours.len(), theirs.len(), "{name}: stream count");
+    assert_eq!(ours.len(), 5, "{name}: stream count");
+    let mut tagged = 0;
+    for (our, their) in ours.iter().zip(theirs) {
+        // `languages.mov` holds one code with two forms: MP4 `fra`, Matroska `fre`.
+        let language = match their["tags"]["language"].as_str() {
+            Some("fra") => Some("fre"),
+            code => code,
+        };
+        assert_eq!(
+            our["tags"]["language"].as_str(),
+            language,
+            "{name}: stream {}",
+            their["index"]
+        );
+        tagged += usize::from(language.is_some());
+    }
+    assert_eq!(tagged, 4, "{name}: tagged streams");
 }

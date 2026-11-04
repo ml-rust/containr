@@ -10,11 +10,12 @@
 //! integer, timestamps scale up by a whole factor.
 
 use crate::error::{Container, Error, Result};
+use crate::mac_language::terminology;
 use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo};
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::codec_config::{aac_esds, opus_dops, rotation_matrix};
 use crate::mp4::mux::spec::{AudioCodec, PacketFormat, SampleEntrySpec, TrackSpec, VisualCodec};
-use crate::track::{PixelAspect, Timebase, Track, TrackKind};
+use crate::track::{Language, PixelAspect, Timebase, Track, TrackKind};
 
 fn refuse(what: String) -> Error {
     Error::Unsupported {
@@ -94,7 +95,7 @@ pub(crate) fn spec_from_matroska(track: &Track, mkv: &MatroskaTrack) -> Result<T
             )));
         }
     };
-    spec.language = track.language;
+    spec.language = mdhd_language(track.language);
     spec.enabled = mkv.enabled;
     spec.metadata = track.metadata.clone();
     spec.default_duration = default_duration(mkv, timescale)?;
@@ -279,6 +280,16 @@ fn audio_spec(
     ))
 }
 
+/// `language` in the terminology form `mdhd` stores. Matroska holds the
+/// bibliographic form.
+fn mdhd_language(language: Language) -> Language {
+    language
+        .iso639()
+        .map(terminology)
+        .and_then(|code| <[u8; 3]>::try_from(code.as_bytes()).ok())
+        .map_or(language, Language::Iso639)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +305,17 @@ mod tests {
             Some((1_000_000_000, 3))
         );
         assert!(timescale_of(Timebase { num: 0, den: 1 }).is_err());
+    }
+
+    #[test]
+    fn mdhd_language_uses_the_terminology_form() {
+        assert_eq!(
+            mdhd_language(Language::Iso639(*b"fre")),
+            Language::Iso639(*b"fra")
+        );
+        assert_eq!(
+            mdhd_language(Language::Iso639(*b"eng")),
+            Language::Iso639(*b"eng")
+        );
     }
 }

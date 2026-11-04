@@ -5,6 +5,7 @@ mod bytes;
 mod chapters;
 mod cluster;
 mod copy;
+mod copy_timing;
 mod cues;
 mod finish;
 mod from_mp4;
@@ -15,6 +16,7 @@ mod mp4_tags;
 mod muxer;
 mod no_seek;
 mod options;
+mod rounded;
 mod spec;
 mod spec_check;
 mod tags;
@@ -32,4 +34,5 @@ pub use options::{
     DEFAULT_CLUSTER_BYTES, DEFAULT_CLUSTER_DURATION_MS, DEFAULT_MAX_BUFFER, DocType,
     MAX_CLUSTER_BYTES, MAX_CLUSTER_DURATION_MS, MIN_CLUSTER_BYTES, MkvOptions,
 };
+pub use rounded::TimestampRounding;
 pub use spec::{PacketIn, TrackId, TrackSpec};

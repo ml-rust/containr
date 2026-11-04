@@ -17,7 +17,8 @@
 //! multiple of the scale. [`StreamCopy::timestamp_scale`] picks a scale that
 //! holds a stream copy. A value with no whole number of nanoseconds, such as
 //! an AAC frame at 48 kHz in an MP4 timescale, fits no scale: the mux refuses
-//! it, and the error names MP4.
+//! it, and the error names MP4. [`StreamCopy::plan_rounded`] is the opt-in that
+//! rounds an MP4 track to a scale the caller names.
 
 mod attachments;
 mod block;
@@ -47,8 +48,8 @@ pub use info::{DEFAULT_TIMESTAMP_SCALE, EbmlHeader, SegmentInfo};
 pub use mux::{
     AttachmentIn, DEFAULT_CLUSTER_BYTES, DEFAULT_CLUSTER_DURATION_MS, DEFAULT_MAX_BUFFER, DocType,
     MAX_CLUSTER_BYTES, MAX_CLUSTER_DURATION_MS, MAX_CUE_POINTS, MAX_TRACKS, MIN_CLUSTER_BYTES,
-    MkvOptions, Muxer, NoSeek, PacketIn, PacketTiming, StreamCopy, TrackId, TrackSpec,
-    tags_from_mp4,
+    MkvOptions, Muxer, NoSeek, PacketIn, PacketTiming, StreamCopy, TimestampRounding, TrackId,
+    TrackSpec, tags_from_mp4,
 };
 pub use packets::{Packets, TrackPackets};
 pub use segment::MAX_ELEMENT_SIZE;

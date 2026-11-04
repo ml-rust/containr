@@ -3,9 +3,10 @@
 //! Chapters come flat in depth-first order, as the demuxer lists them. Atoms
 //! nest back from their depth, and a new edition starts wherever the edition
 //! UID changes. Every atom has a `ChapterUID`: its own, else a derived one. A
-//! chapter time must be a whole number of nanoseconds, or it is refused.
+//! repeated non-zero `ChapterUID` is refused. A chapter time must be a whole
+//! number of nanoseconds, or it is refused.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::Result;
 use crate::metadata::{Chapter, ChapterSource};
@@ -76,16 +77,30 @@ fn place(list: &mut Vec<Atom>, depth: u32, atom: Atom, n: usize) -> Result<()> {
     place(&mut parent.children, depth - 1, atom, n)
 }
 
+/// Every non-zero `ChapterUID` the chapters state. A repeat is refused.
+fn given_uids(chapters: &[Chapter]) -> Result<HashSet<u64>> {
+    let mut first_at: HashMap<u64, usize> = HashMap::new();
+    for (n, chapter) in chapters.iter().enumerate() {
+        let ChapterSource::Matroska { chapter_uid, .. } = chapter.source else {
+            continue;
+        };
+        if chapter_uid == 0 {
+            continue;
+        }
+        if let Some(first) = first_at.insert(chapter_uid, n) {
+            return Err(invalid(format!(
+                "chapter {n} repeats `ChapterUID` {chapter_uid} of chapter {first}. Give each \
+                 chapter its own UID"
+            )));
+        }
+    }
+    Ok(first_at.into_keys().collect())
+}
+
 /// Check `chapters` and arrange them into editions.
 pub(crate) fn plan_chapters(chapters: &[Chapter]) -> Result<ChapterPlan> {
     let mut plan = ChapterPlan::default();
-    let given: HashSet<u64> = chapters
-        .iter()
-        .filter_map(|chapter| match chapter.source {
-            ChapterSource::Matroska { chapter_uid, .. } if chapter_uid != 0 => Some(chapter_uid),
-            _ => None,
-        })
-        .collect();
+    let given = given_uids(chapters)?;
     let mut derived: HashSet<u64> = HashSet::new();
     for (n, chapter) in chapters.iter().enumerate() {
         let (edition_uid, own_uid, depth) = match chapter.source {
@@ -246,6 +261,30 @@ mod tests {
         assert_eq!(read[0].start, 800_000_000);
         assert_eq!(read[0].duration, Some(1_200_000_000));
         assert_eq!(read[0].title, "Closing");
+    }
+
+    #[test]
+    fn a_repeated_chapter_uid_is_refused_by_name() {
+        let chapters = [
+            matroska(7, 0, Some(1)),
+            matroska(8, 0, Some(1)),
+            matroska(7, 0, Some(2)),
+        ];
+        let err = plan_chapters(&chapters).expect_err("UID 7 repeats");
+        let text = err.to_string();
+        assert!(text.contains("`ChapterUID` 7"), "{text}");
+        assert!(text.contains("chapter 2"), "{text}");
+        assert!(text.contains("chapter 0"), "{text}");
+        assert!(text.contains("its own UID"), "{text}");
+    }
+
+    #[test]
+    fn zero_uids_repeat_and_each_gets_its_own() {
+        let plan =
+            plan_chapters(&[matroska(0, 0, None), matroska(0, 0, None)]).expect("0 means no UID");
+        assert_eq!(plan.uids.len(), 2);
+        assert_ne!(plan.uids[0], plan.uids[1]);
+        assert!(plan.uids.iter().all(|&uid| uid != 0));
     }
 
     #[test]
