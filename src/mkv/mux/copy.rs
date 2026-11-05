@@ -35,7 +35,7 @@ impl TrackSpec {
     /// A Matroska track keeps its raw `CodecID`, `CodecPrivate`, UID, tags and
     /// every other `MatroskaTrack` fact. An MP4 track maps by sample entry,
     /// and an entry with no Matroska form gives
-    /// [`Error::Unsupported`], which names MP4. Use [`StreamCopy::plan`] for
+    /// [`crate::Error::Unsupported`], which names MP4. Use [`StreamCopy::plan`] for
     /// packet timing and for the facts an MP4 track's packets and edit list
     /// set: `DefaultDuration` and `CodecDelay`.
     pub fn copy_from(track: &Track) -> Result<Self> {
