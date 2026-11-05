@@ -39,6 +39,7 @@ pub(crate) fn macintosh_iso639(code: u16) -> Option<&'static str> {
 
 /// The ISO 639-2 codes whose terminology form differs from the bibliographic
 /// form, as `(terminology, bibliographic)`.
+#[cfg(any(feature = "mkv", feature = "mp4"))]
 const TERMINOLOGY_BIBLIOGRAPHIC: [(&str, &str); 20] = [
     ("bod", "tib"),
     ("ces", "cze"),
