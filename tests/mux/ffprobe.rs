@@ -4,6 +4,8 @@
 
 use std::process::Command;
 
+use containr::TrackKind;
+
 use crate::common::{Fixture, mp4_probe};
 use crate::mux::support::{Remux, remux_mkv, remux_mp4, write_output};
 
@@ -244,10 +246,32 @@ fn check_audio_sync(name: &str, frame: usize) {
     ) else {
         return;
     };
-    assert_eq!(
-        our_start, src_start,
-        "{name}: start_time and start_pts against the source"
-    );
+    // FFmpeg 9 prints a source's start after the `CodecDelay` skip. FFmpeg 8 prints
+    // the first block's time before it, so the first block's raw time is the start
+    // to match, and its decode can keep the delay samples.
+    let audio = remux
+        .copied
+        .iter()
+        .find(|copied| copied.source.kind == TrackKind::Audio)
+        .unwrap_or_else(|| panic!("{name}: no audio track"));
+    let mkv = audio.source.matroska.as_ref().expect("a Matroska track");
+    let tick = i128::from(audio.source.timebase.num);
+    let first = i128::from(audio.packets.first().expect("the track has packets").pts);
+    // libavformat rounds the delay to the nearest tick, halves up.
+    let delay_ticks = (i128::from(mkv.codec_delay) + tick / 2) / tick;
+    let before_skip = delay_ticks > 0 && src_start.1 == (first - delay_ticks) * tick;
+    if before_skip {
+        assert_eq!(
+            our_start.1,
+            first * tick,
+            "{name}: start_pts against the source's first block"
+        );
+    } else {
+        assert_eq!(
+            our_start, src_start,
+            "{name}: start_time and start_pts against the source"
+        );
+    }
     assert_eq!(
         our_start, ff_start,
         "{name}: start_time and start_pts against ffmpeg -c copy"
@@ -259,12 +283,26 @@ fn check_audio_sync(name: &str, frame: usize) {
     ) else {
         return;
     };
+    let delay_samples = if before_skip {
+        let facts = mkv.audio.as_ref().expect("an Audio element");
+        let per_second = facts.sampling_frequency as u128 * u128::from(facts.channels);
+        (u128::from(mkv.codec_delay) * per_second / 1_000_000_000) as usize
+    } else {
+        0
+    };
+    // FFmpeg 8 decodes AAC delay samples from Matroska. Its own MP4 keeps them too:
+    // the edit starts at media time 0 and delays the video instead. The copy drops
+    // them with an edit that starts past the `CodecDelay`, as a Matroska reader does.
+    let near = |count: usize| {
+        count.abs_diff(our_count) <= frame
+            || count.saturating_sub(delay_samples).abs_diff(our_count) <= frame
+    };
     assert!(
-        src_count.abs_diff(our_count) <= frame,
+        near(src_count),
         "{name}: {our_count} decoded samples against {src_count} in the source"
     );
     assert!(
-        ff_count.abs_diff(our_count) <= frame,
+        near(ff_count),
         "{name}: {our_count} decoded samples against {ff_count} in ffmpeg -c copy"
     );
 }

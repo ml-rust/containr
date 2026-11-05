@@ -12,6 +12,11 @@
 //! `BlockDuration` already excludes the padding in the files FFmpeg writes,
 //! and the edit list uses the stored duration.
 //!
+//! A Matroska packet lasts until the next decode time. The last one keeps its
+//! stored duration. With none stored, an audio or video packet takes the gap
+//! between the track's two latest distinct timestamps, less its
+//! `DiscardPadding`. Audio from FFmpeg 8 and older stores no duration.
+//!
 //! A reader shows a block at its timestamp minus `CodecDelay`, so the edit
 //! starts at `CodecDelay` in track ticks. The segment lasts to the end of the
 //! last packet less that start. An AAC track carries the delay in the edit
@@ -21,7 +26,7 @@
 
 use crate::edit::{EditEntry, EditList};
 use crate::error::{Container, Error, Result};
-use crate::matroska::MatroskaTrack;
+use crate::matroska::{MatroskaTrack, last_packet_duration};
 use crate::metadata::{Chapter, ChapterSource};
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::matroska::{delay_ticks, spec_from_matroska, tick_factor, timescale_of};
@@ -135,6 +140,12 @@ impl StreamCopy {
     /// Plan the copy of `track`. `packets` holds every packet of the track,
     /// in decode order, as the demuxer's `track_packets` yields them.
     /// `movie_timescale` is the output's [`MuxOptions::movie_timescale`].
+    ///
+    /// A last audio or video packet of a Matroska track with no stored duration
+    /// lasts the gap between the track's two latest distinct timestamps, less
+    /// its `DiscardPadding`, in whole ticks. A track with one timestamp and a
+    /// subtitle track get no such duration, so the muxer gives
+    /// [`Error::MissingDuration`] unless [`TrackSpec::default_duration`] is set.
     ///
     /// [`MuxOptions::movie_timescale`]: crate::mp4::MuxOptions::movie_timescale
     pub fn plan(track: &Track, packets: &[Packet], movie_timescale: u32) -> Result<Self> {
@@ -260,11 +271,17 @@ fn matroska_timing(
             _ => {}
         }
     }
+    let last_duration = last_packet_duration(track, packets);
     let durations: Vec<Option<u64>> = packets
         .iter()
-        .map(|packet| {
-            packet
-                .duration
+        .enumerate()
+        .map(|(n, packet)| {
+            let stored = if n + 1 == packets.len() {
+                last_duration
+            } else {
+                packet.duration
+            };
+            stored
                 .map(|duration| {
                     duration.checked_mul(factor).ok_or_else(|| {
                         invalid(format!(

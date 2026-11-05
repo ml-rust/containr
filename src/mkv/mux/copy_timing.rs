@@ -1,6 +1,7 @@
 //! The timing rules of an exact stream copy: edit lists, end trims, and the scale.
 
 use crate::error::{Error, Result};
+use crate::matroska::last_packet_duration;
 use crate::mkv::mux::bytes::{invalid, refuse};
 use crate::mkv::mux::copy::{PREFERRED_SCALE, PacketTiming};
 use crate::mkv::mux::mp4_edit::EditPlan;
@@ -13,15 +14,21 @@ pub(super) fn matroska_timing(
     track: &Track,
     packets: &[Packet],
 ) -> Result<Vec<Option<PacketTiming>>> {
+    let last = last_packet_duration(track, packets);
     packets
         .iter()
-        .map(|packet| {
+        .enumerate()
+        .map(|(n, packet)| {
             if packet.pts < 0 {
                 return Err(negative(track, packet.index, packet.pts));
             }
             Ok(Some(PacketTiming {
                 pts: packet.pts,
-                duration: packet.duration,
+                duration: if n + 1 == packets.len() {
+                    last
+                } else {
+                    packet.duration
+                },
                 discard_padding: packet.discard_padding,
             }))
         })

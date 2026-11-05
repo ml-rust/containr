@@ -3,7 +3,7 @@
 //! the demuxer reports, as the FFmpeg-fixture demux tests check, and a decode
 //! must log no error.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
@@ -60,11 +60,47 @@ fn read_back(output_name: &str, bytes: &[u8], source: &Path) -> Option<Value> {
     // undecodable frames, proves nothing about the copy.
     let theirs = decode_errors(source)?;
     let ours = decode_errors(&path)?;
-    assert!(
-        ours.is_empty() || !theirs.is_empty(),
-        "{output_name}: ffmpeg logs errors on the copy and none on the source: {ours}"
+    if ours.is_empty() || !theirs.is_empty() {
+        return Some(probe);
+    }
+    // FFmpeg 8's Opus parser logs an error at the end of any Matroska input, with
+    // every packet decoded. An MP4 source has no such parser. So FFmpeg's own
+    // Matroska of the source is the reference: it must log the same messages.
+    let own = ffmpeg_copy(source, &format!("ffcopy_{output_name}"))?;
+    let reference = decode_errors(&own)?;
+    assert_eq!(
+        messages(&ours),
+        messages(&reference),
+        "{output_name}: ffmpeg logs errors on the copy that it does not log on its own copy"
     );
     Some(probe)
+}
+
+/// `ffmpeg -c copy` of `source` to `name` in the output directory. `None`, with a
+/// notice, when ffmpeg is not on PATH.
+fn ffmpeg_copy(source: &Path, name: &str) -> Option<PathBuf> {
+    let path = write_output(name, &[]);
+    let status = Command::new("ffmpeg")
+        .args(["-nostdin", "-v", "error", "-y", "-i"])
+        .arg(source)
+        .args(["-c", "copy"])
+        .arg(&path)
+        .status()
+        .map_err(|err| eprintln!("skipping: ffmpeg does not run: {err}"))
+        .ok()?;
+    assert!(
+        status.success(),
+        "ffmpeg -c copy failed on {}",
+        source.display()
+    );
+    Some(path)
+}
+
+/// Each line of an ffmpeg log, with no `[name @ address]` prefix.
+fn messages(log: &str) -> Vec<&str> {
+    log.lines()
+        .map(|line| line.split_once("] ").map_or(line, |(_, message)| message))
+        .collect()
 }
 
 /// The ffprobe rotation of a stream.

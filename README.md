@@ -64,6 +64,8 @@ In development. No release exists yet.
 
 `mkv::StreamCopy::plan` refuses a timestamp Matroska cannot hold exactly. See [what `TimestampScale` holds](#limits-what-timestampscale-holds).
 
+FFmpeg 8 and older store no duration on Matroska audio blocks, and every mux needs one on the last block. So when a last audio or video packet stores no duration, `StreamCopy::plan` gives it the gap between the track's two latest distinct timestamps, less its `DiscardPadding`. A track with one timestamp and a subtitle track get no such duration, and the muxer refuses them with `Error::MissingDuration`.
+
 ## Features
 
 Each container is a Cargo feature. The default build holds the shared types only.

@@ -7,14 +7,33 @@ use crate::common::{self, mkv_synth};
 use crate::mkvmux::support::{MkvDemuxer, collect, copy_mkv, ok, open_mkv};
 use crate::mkvmux::walk::walk;
 
+/// The duration the copy states for the last of `packets`: the stored one, else
+/// the gap between the last two timestamps less `DiscardPadding`, in whole
+/// ticks of `tick` nanoseconds, halves up. FFmpeg 8 and older store none on audio.
+fn stated_last(packets: &[Packet], tick: u64) -> Option<u64> {
+    let last = packets.last()?;
+    if last.duration.is_some() {
+        return last.duration;
+    }
+    let mut times: Vec<i64> = packets.iter().map(|packet| packet.pts).collect();
+    times.sort_unstable();
+    times.dedup();
+    let [.., before, latest] = times[..] else {
+        return None;
+    };
+    let padding = last.discard_padding.unwrap_or(0).max(0) as u64;
+    Some(((latest - before) as u64 * tick - padding + tick / 2) / tick)
+}
+
 /// What a reader takes as equal: every packet field but the byte offset, and
-/// the lace, since the copy writes one frame per block.
-fn check_packet(at: &str, ours: &Packet, theirs: &Packet) {
+/// the lace, since the copy writes one frame per block. `duration` is the
+/// duration the copy states.
+fn check_packet(at: &str, ours: &Packet, theirs: &Packet, duration: Option<u64>) {
     assert_eq!(ours.track_id, theirs.track_id, "{at}: track");
     assert_eq!(ours.index, theirs.index, "{at}: index");
     assert_eq!(ours.dts, None, "{at}: Matroska stores no dts");
     assert_eq!(ours.pts, theirs.pts, "{at}: pts");
-    assert_eq!(ours.duration, theirs.duration, "{at}: duration");
+    assert_eq!(ours.duration, duration, "{at}: duration");
     assert_eq!(ours.sync, theirs.sync, "{at}: keyframe");
     assert_eq!(ours.discardable, theirs.discardable, "{at}: discardable");
     assert_eq!(
@@ -25,13 +44,25 @@ fn check_packet(at: &str, ours: &Packet, theirs: &Packet) {
     assert_eq!(ours.lace, None, "{at}: the copy writes no lacing");
 }
 
+/// The nanoseconds per tick of `track`.
+fn tick_of(demuxer: &MkvDemuxer, track: u32) -> u64 {
+    let track = demuxer.track(track).expect("the track exists");
+    u64::from(track.timebase.num)
+}
+
 fn check_packets(name: &str, input: &mut MkvDemuxer, output: &mut MkvDemuxer, track: u32) {
     let theirs = collect(name, ok(name, input.track_packets(track)));
     let ours = collect(name, ok(name, output.track_packets(track)));
     assert_eq!(ours.len(), theirs.len(), "{name} track {track}: packets");
+    let last = stated_last(&theirs, tick_of(input, track));
     for (n, (our, their)) in ours.iter().zip(&theirs).enumerate() {
         let at = format!("{name} track {track} packet {n}");
-        check_packet(&at, our, their);
+        let duration = if n + 1 == theirs.len() {
+            last
+        } else {
+            their.duration
+        };
+        check_packet(&at, our, their, duration);
         let our_bytes = ok(name, output.read_packet(our));
         let their_bytes = ok(name, input.read_packet(their));
         assert_eq!(our_bytes, their_bytes, "{at}: bytes");
@@ -81,13 +112,14 @@ fn check_bytes(name: &str, bytes: &[u8]) {
     let layout = walk(&copy);
     for &track in &tracks {
         let theirs = collect(name, ok(name, input.track_packets(track)));
-        let Some(last) = theirs.last() else {
+        if theirs.is_empty() {
             continue;
-        };
+        }
+        let want = stated_last(&theirs, tick_of(&input, track));
         let stored = layout
             .last_block(u64::from(track))
             .unwrap_or_else(|| panic!("{name} track {track}: no block"));
-        assert_eq!(stored.duration, last.duration, "{name} track {track}: last");
+        assert_eq!(stored.duration, want, "{name} track {track}: last");
         assert!(stored.duration.is_some(), "{name} track {track}: explicit");
     }
 }

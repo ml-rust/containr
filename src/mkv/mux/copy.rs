@@ -1,7 +1,9 @@
 //! Stream copy: a track spec and packet timing from a demuxed track.
 //!
 //! A Matroska track copies as it is: every `MatroskaTrack` fact, `pts`,
-//! duration, flags and `DiscardPadding`. An MP4 track maps to its Matroska
+//! duration, flags and `DiscardPadding`. The muxer needs a duration on the last
+//! block, so a last audio or video packet that stores none takes one, as
+//! [`StreamCopy::plan`] states. An MP4 track maps to its Matroska
 //! form, and every timestamp and duration must be a whole number of
 //! nanoseconds, or [`StreamCopy::plan`] refuses the track and names MP4.
 //! [`StreamCopy::plan_rounded`] is the opt-in that rounds instead.
@@ -55,7 +57,8 @@ impl TrackSpec {
 pub struct PacketTiming {
     /// Presentation timestamp.
     pub pts: i64,
-    /// Duration. `None` leaves the packet to `DefaultDuration`.
+    /// Duration. `None` leaves the packet to `DefaultDuration`. [`StreamCopy::plan`]
+    /// states how the last packet of a Matroska track gets a value.
     pub duration: Option<u64>,
     /// The `DiscardPadding` in nanoseconds.
     pub discard_padding: Option<i64>,
@@ -85,6 +88,14 @@ impl StreamCopy {
     /// Every value converts exactly, or the plan refuses the track. An MP4
     /// value with no whole number of nanoseconds is refused, and the error
     /// names MP4 and [`StreamCopy::plan_rounded`].
+    ///
+    /// A last audio or video packet of a Matroska track with no stored duration
+    /// lasts the gap between the track's two latest distinct timestamps, less
+    /// its `DiscardPadding`, in whole ticks. Audio from FFmpeg 8 and older
+    /// stores no duration. The other packets keep `None`. A track with one
+    /// timestamp and a subtitle track get no such duration, so
+    /// [`Muxer::finish`](crate::mkv::Muxer::finish) gives
+    /// [`crate::Error::MissingDuration`].
     pub fn plan(track: &Track, packets: &[Packet]) -> Result<Self> {
         check_order(track, packets, "plan")?;
         let mut spec = TrackSpec::copy_from(track)?;

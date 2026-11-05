@@ -1,5 +1,6 @@
 mod colour;
 mod ffprobe;
+mod last_duration;
 mod layout;
 mod refusals;
 mod refusals_packets;

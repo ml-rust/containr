@@ -28,6 +28,68 @@ fn display_matrix(dump: &str) -> Vec<i32> {
         .collect()
 }
 
+/// The child box `kind` of `parent`, `nth` from 0.
+fn child_box<'a>(parent: &'a [u8], kind: &[u8; 4], nth: usize) -> &'a [u8] {
+    let mut pos = 0;
+    let mut seen = 0;
+    while pos + 8 <= parent.len() {
+        let word = |at: usize| u32::from_be_bytes(parent[at..at + 4].try_into().expect("4 bytes"));
+        let (header, size) = match word(pos) {
+            0 => (8, parent.len() - pos),
+            1 => (
+                16,
+                ((word(pos + 8) as usize) << 32) | word(pos + 12) as usize,
+            ),
+            size => (8, size as usize),
+        };
+        if &parent[pos + 4..pos + 8] == kind {
+            if seen == nth {
+                return &parent[pos + header..pos + size];
+            }
+            seen += 1;
+        }
+        pos += size;
+    }
+    panic!("no box {} at position {nth}", String::from_utf8_lossy(kind));
+}
+
+/// The `mdhd` duration of the `index`-th `trak`, read from the file bytes with
+/// no help from the demuxer or ffprobe.
+fn stored_mdhd(bytes: &[u8], index: usize) -> u64 {
+    let moov = child_box(bytes, b"moov", 0);
+    let mdia = child_box(child_box(moov, b"trak", index), b"mdia", 0);
+    let mdhd = child_box(mdia, b"mdhd", 0);
+    if mdhd[0] == 1 {
+        u64::from_be_bytes(mdhd[24..32].try_into().expect("8 bytes"))
+    } else {
+        u64::from(u32::from_be_bytes(
+            mdhd[16..20].try_into().expect("4 bytes"),
+        ))
+    }
+}
+
+/// Check `mdhd` against the file bytes and against ffprobe.
+///
+/// libavformat reports the smaller of `mdhd` and the `stts` sum. The two differ
+/// on a B-frame track from FFmpeg 8 and older, whose `mdhd` also holds the start
+/// delay. FFmpeg 9 stores the `stts` sum in `mdhd`.
+///
+/// libavformat rewrites the duration of a chapter track, and reports a subtitle
+/// stream's duration_ts from the movie, not from `mdhd`.
+fn check_track_duration(fx: &Fixture, stream: &Value, track: &Track, stts_sum: u64) {
+    if track.chapter_track || track.kind == TrackKind::Subtitle {
+        return;
+    }
+    let what = format!("{} track {}", fx.name, track.id);
+    let stored = stored_mdhd(&fx.bytes, int(stream, "index") as usize);
+    assert_eq!(track.duration, Some(stored), "{what}: mdhd duration");
+    assert_eq!(
+        int(stream, "duration_ts") as u64,
+        stored.min(stts_sum),
+        "{what}: duration_ts against mdhd {stored} and stts sum {stts_sum}"
+    );
+}
+
 fn check_stream(fx: &Fixture, stream: &Value, track: &Track) {
     let what = format!("{} track {}", fx.name, track.id);
     assert_eq!(
@@ -41,15 +103,6 @@ fn check_stream(fx: &Fixture, stream: &Value, track: &Track) {
         (u64::from(track.timebase.num), u64::from(track.timebase.den)),
         "{what}: timescale"
     );
-    // libavformat rewrites the duration of a chapter track, and reports a
-    // subtitle stream's duration_ts from the movie, not from `mdhd`.
-    if !track.chapter_track && track.kind != TrackKind::Subtitle {
-        assert_eq!(
-            Some(int(stream, "duration_ts")),
-            track.duration.map(|d| d as i64),
-            "{what}: mdhd duration"
-        );
-    }
     if let Some(language) = track.language.iso639() {
         assert_eq!(
             stream["tags"]["language"].as_str(),
@@ -126,6 +179,8 @@ fn check_packets(
         .expect("the track exists")
         .collect::<Result<_, _>>()
         .unwrap_or_else(|err| panic!("{what}: {err}"));
+    let stts_sum: u64 = ours.iter().map(|packet| packet.duration.unwrap_or(0)).sum();
+    check_track_duration(fx, stream, track, stts_sum);
     if theirs.is_empty() && track.chapter_track {
         // libavformat reads chapter tracks into chapters, not packets.
         return;

@@ -184,7 +184,8 @@ pub enum Error {
         descriptions: u64,
     },
     /// The last packet of a track has no duration, and the track has no
-    /// default duration.
+    /// default duration. A stream copy plan fills this duration from the last
+    /// two timestamps of an audio or video track.
     MissingDuration {
         /// The output track id.
         track_id: u32,
@@ -458,7 +459,10 @@ impl fmt::Display for Error {
                  no duration, and the track spec has no default duration. Set \
                  `PacketIn::duration` on the last packet, or the default duration \
                  (`TrackSpec::default_duration` for MP4, \
-                 `MatroskaTrack::default_duration` for Matroska)"
+                 `MatroskaTrack::default_duration` for Matroska). `StreamCopy::plan` \
+                 fills it from the last two timestamps of an audio or video track, so \
+                 a stream copy gets this error only for a track with one timestamp, a \
+                 `DiscardPadding` that covers that gap, or a subtitle track"
             ),
             Self::InvalidPacket {
                 container,

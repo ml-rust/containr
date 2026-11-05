@@ -134,6 +134,37 @@ fn their_padding(packet: &Value) -> Option<i64> {
         .filter(|&samples| samples != 0)
 }
 
+/// Compare packet `n`'s stored duration with ffprobe's.
+///
+/// ffprobe prints a duration for a block that stores none: its own estimate
+/// from the codec. FFmpeg 8 and older write audio this way, so there the file
+/// holds no value to compare. Only audio gets this allowance.
+///
+/// FFmpeg 8 also prints a whole frame for the last Opus packet, from its
+/// parser, whatever `BlockDuration` stores. FFmpeg 9 prints the stored value.
+/// A different value passes only in that one shape. `tests/mkvmux/walk.rs`
+/// reads the stored last duration with no help from ffprobe.
+fn check_duration(at: &str, track: &Track, our: &Packet, theirs: &[&Value], n: usize) {
+    let mkv = track.matroska.as_ref().expect("checked in check_stream");
+    let Some(ours) = our.duration else {
+        assert_eq!(track.kind, TrackKind::Audio, "{at}: no stored duration");
+        assert_eq!(mkv.default_duration, None, "{at}: no stored duration");
+        return;
+    };
+    let ours = ours as i64;
+    let their = int(theirs[n], "duration");
+    if ours == their {
+        return;
+    }
+    let frame = n
+        .checked_sub(1)
+        .map(|previous| int(theirs[previous], "duration"));
+    assert!(
+        mkv.codec_id == "A_OPUS" && n + 1 == theirs.len() && ours < their && frame == Some(their),
+        "{at}: duration: ours {ours}, ffprobe {their}"
+    );
+}
+
 fn check_packets(fx: &Fixture, demuxer: &mut Demuxer<BufReader<File>>, index: i64, track: &Track) {
     let what = format!("{} track {}", fx.name, track.id);
     let mkv = track.matroska.as_ref().expect("checked in check_stream");
@@ -160,11 +191,7 @@ fn check_packets(fx: &Fixture, demuxer: &mut Demuxer<BufReader<File>>, index: i6
         assert_eq!(our.index, n as u64, "{at}: index");
         assert_eq!(our.dts, None, "{at}: Matroska stores no dts");
         assert_eq!(our.pts - delay, int(their, "pts"), "{at}: pts");
-        assert_eq!(
-            our.duration.map(|d| d as i64),
-            their.get("duration").map(|_| int(their, "duration")),
-            "{at}: duration"
-        );
+        check_duration(&at, track, our, &theirs, n);
         assert_eq!(i64::from(our.size), int(their, "size"), "{at}: size");
         assert_eq!(
             our.offset - BLOCK_HEADER,

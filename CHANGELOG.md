@@ -10,7 +10,7 @@ First release.
 
 - `mp4` feature: read and write MP4 and QuickTime MOV, with sample tables, edit lists, metadata, chapters, and faststart. Fragmented MP4 demux returns `Error::Fragmented`.
 - `mkv` feature: read and write Matroska and WebM, with lacing, `DiscardPadding`, `Cues`, chapters, tags, attachments, and Clusters of unknown size. WebM refuses codecs and attachments it cannot hold.
-- `StreamCopy`: copy tracks within and between both families, with edit lists, codec delay, colour tags, languages, and titles. Stream copy drops MP4 `sgpd` and `sbgp` boxes. MP4 has no form for Matroska attachments, so a caller copying to MP4 must check `Demuxer::attachments()`.
+- `StreamCopy`: copy tracks within and between both families, with edit lists, codec delay, colour tags, languages, and titles. Stream copy drops MP4 `sgpd` and `sbgp` boxes. MP4 has no form for Matroska attachments, so a caller copying to MP4 must check `Demuxer::attachments()`. A last Matroska audio or video packet with no stored duration, as in FFmpeg 8 audio, takes the gap between the last two timestamps, less its `DiscardPadding`. A track with one timestamp or a subtitle track with no duration stays refused, so set `PacketIn::duration` for it.
 - `mkv::StreamCopy::plan`: copy timestamps exactly. It refuses a value no `TimestampScale` holds.
 - `mkv::StreamCopy::plan_rounded`: opt in to rounding. Each timestamp stays within half a tick.
 - `ContainerColour`: read and write `colr` and `Colour` tags. The type is in the default build. Reading and writing need `mp4` or `mkv`.

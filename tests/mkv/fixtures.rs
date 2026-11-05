@@ -115,7 +115,22 @@ fn webm_opus_carries_codec_delay_and_seek_pre_roll() {
     assert_eq!(audio.codec_id(), Some("A_OPUS"));
     assert_eq!(mkv.codec_delay, 6_500_000, "libopus: 312 samples at 48 kHz");
     assert_eq!(mkv.seek_pre_roll, 80_000_000);
-    assert_eq!(mkv.default_duration, Some(20_000_000));
+    // FFmpeg 9 stores the 20 ms frame as `DefaultDuration`. FFmpeg 8 and older
+    // store no audio default. The first block takes its duration from the default
+    // in both cases.
+    let default_duration = mkv.default_duration;
+    assert!(
+        matches!(default_duration, None | Some(20_000_000)),
+        "DefaultDuration {default_duration:?}"
+    );
+    let id = audio.id;
+    let first = demuxer
+        .track_packets(id)
+        .expect("the track exists")
+        .next()
+        .expect("the track has packets")
+        .expect("the packet reads");
+    assert_eq!(first.duration, default_duration.map(|ns| ns / 1_000_000));
 }
 
 #[test]

@@ -14,7 +14,7 @@ Media containers for Rust: MP4/MOV and MKV/WebM demux, mux and edit lists. Share
 - Each container is a Cargo feature: `mp4`, `mkv`. The default build is minimal.
 - Timestamps are integers in the track timescale. NEVER convert a timestamp to floating point.
 - Demux exposes raw edit lists. The caller applies them. NEVER apply an edit list silently. `mkv::StreamCopy` maps an MP4 edit list into its plan, visible in `timing()`, since Matroska has no edit list.
-- Stream copy keeps packet bytes, timestamps, durations and codec configuration unchanged. The one exception is `mkv::StreamCopy::plan_rounded`, an explicit opt-in. NEVER round by default.
+- Stream copy keeps packet bytes, timestamps, durations and codec configuration unchanged. The one exception is `mkv::StreamCopy::plan_rounded`, an explicit opt-in. NEVER round by default. A last Matroska audio or video packet with no stored duration takes one from the last two timestamps, less its `DiscardPadding`. No other packet gains a duration.
 - A mux refuses a stream the container cannot hold, and the error names the container that can.
 - Demux on malformed input returns an error. NEVER panic, and NEVER allocate from a size the file declares without a bound.
 - Every writer has a round-trip test: write, read back, compare packets and metadata. A test that reads only files we wrote proves nothing; also read files produced by another muxer.

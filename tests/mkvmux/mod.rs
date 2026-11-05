@@ -1,5 +1,6 @@
 mod colour;
 mod ffprobe;
+mod last_duration;
 mod layout;
 mod mapping;
 mod refusals;

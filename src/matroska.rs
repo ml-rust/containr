@@ -6,6 +6,54 @@
 //! timestamps.
 
 use crate::colour::ContainerColour;
+#[cfg(any(feature = "mp4", feature = "mkv"))]
+use crate::packet::Packet;
+#[cfg(any(feature = "mp4", feature = "mkv"))]
+use crate::track::{Track, TrackKind};
+
+/// The duration a stream copy gives the last packet of a Matroska track, in
+/// track ticks. `packets` holds every packet of the track.
+///
+/// A stored duration stays as it is. With none stored, an audio or video packet
+/// lasts the gap between the track's two latest distinct timestamps. Audio
+/// from FFmpeg 8 and older stores no duration at all.
+///
+/// A positive `DiscardPadding` comes off that gap, since a stored
+/// `BlockDuration` excludes it in the files FFmpeg writes. The result rounds to
+/// the nearest tick, halves up, and is at least 1 tick.
+///
+/// `None` keeps the muxer's [`MissingDuration`](crate::Error::MissingDuration)
+/// refusal. It covers a track with one timestamp, a padding that covers the
+/// gap, and a subtitle track, whose cue length has no relation to the gap
+/// between cues.
+#[cfg(any(feature = "mp4", feature = "mkv"))]
+pub(crate) fn last_packet_duration(track: &Track, packets: &[Packet]) -> Option<u64> {
+    let last = packets.last()?;
+    if last.duration.is_some() {
+        return last.duration;
+    }
+    if !matches!(track.kind, TrackKind::Audio | TrackKind::Video) {
+        return None;
+    }
+    let latest = packets.iter().map(|packet| packet.pts).max()?;
+    let previous = packets
+        .iter()
+        .map(|packet| packet.pts)
+        .filter(|&pts| pts < latest)
+        .max()?;
+    let gap = u64::try_from(i128::from(latest) - i128::from(previous)).ok()?;
+    let padding = i128::from(last.discard_padding.unwrap_or(0).max(0));
+    if padding == 0 {
+        return Some(gap);
+    }
+    // A Matroska tick counts `Timebase::num` nanoseconds.
+    let tick = i128::from(track.timebase.num.max(1));
+    let left = i128::from(gap) * tick - padding;
+    if left <= 0 {
+        return None;
+    }
+    u64::try_from(((2 * left + tick) / (2 * tick)).max(1)).ok()
+}
 
 /// One child element containr does not model. The demuxer keeps it raw, and
 /// stream copy writes it back unchanged.
