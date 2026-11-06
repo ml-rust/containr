@@ -40,6 +40,8 @@ Read and write MP4, MOV, Matroska, and WebM, with stream copy between them. Time
 
 </div>
 
+containr is an MP4, MOV, Matroska, and WebM demuxer and muxer for Rust. It does the container work of `ffmpeg -c copy` as a library, in Rust, with no C library and no Python.
+
 containr holds the container layer of the ml-rust media stack. It parses boxes and EBML elements into tracks, packets, metadata, chapters, and attachments, and it writes them back. [vidr](https://github.com/ml-rust/vidr) (video) and [voxr](https://github.com/ml-rust/voxr) (audio) depend on it. Codecs live in those crates, so containr never decodes or encodes media.
 
 ```text
@@ -48,12 +50,19 @@ file → demux → packets with integer timestamps → your codec, or mux → fi
 
 ## Status
 
-In development. No release exists yet.
+In development. Version 0.1.0 is on crates.io.
 
 | Format | Demux | Mux | Feature |
 | ------ | ----- | --- | ------- |
 | MP4, QuickTime MOV | Yes. Fragmented MP4 (`moof`) is planned, and refused today | Yes | `mp4` |
 | Matroska, WebM | Yes | Yes. WebM refuses codecs it cannot hold | `mkv` |
+
+### Not supported yet
+
+- Fragmented MP4 (`moof`) input. Demux refuses it with `Error::Fragmented`.
+- Decoding or encoding any codec. containr moves packets only.
+- Matroska attachments into MP4. MP4 has no form for them.
+- Exact AAC at 44.1 or 48 kHz and 29.97 fps video in Matroska. `StreamCopy::plan` refuses them, and `StreamCopy::plan_rounded` is the opt-in.
 
 ### Stream copy
 
@@ -69,6 +78,12 @@ FFmpeg 8 and older store no duration on Matroska audio blocks, and every mux nee
 ## Features
 
 Each container is a Cargo feature. The default build holds the shared types only.
+
+```bash
+cargo add containr --features mp4,mkv
+```
+
+The `mp4` feature depends on the `mp4-atom` crate. The `mkv` feature has no dependency, because the EBML reader and writer are containr's own. The minimum Rust version is 1.95.
 
 | Feature | What it adds                                                        |
 | ------- | ------------------------------------------------------------------- |
