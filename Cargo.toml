@@ -1,6 +1,6 @@
 [package]
 name = "containr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.95"
 description = "MP4, MOV, Matroska and WebM demuxer and muxer for Rust, with integer timestamps and raw edit lists"
