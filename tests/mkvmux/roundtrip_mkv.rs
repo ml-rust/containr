@@ -1,7 +1,7 @@
 //! Matroska and WebM fixtures: demux, stream copy, demux again. Packets, track
 //! facts, tags, chapters and attachments come back equal.
 
-use containr::Packet;
+use containr::{Packet, Track};
 
 use crate::common::{self, mkv_synth};
 use crate::mkvmux::support::{MkvDemuxer, collect, copy_mkv, ok, open_mkv};
@@ -25,9 +25,10 @@ fn stated_last(packets: &[Packet], tick: u64) -> Option<u64> {
     Some(((latest - before) as u64 * tick - padding + tick / 2) / tick)
 }
 
-/// What a reader takes as equal: every packet field but the byte offset, and
-/// the lace, since the copy writes one frame per block. `duration` is the
-/// duration the copy states.
+/// What a reader takes as equal: every packet field but the byte offset, the
+/// lace, since the copy writes one frame per block, and the size, which
+/// [`check_packets`] compares with the bytes the source reads back. `duration`
+/// is the duration the copy states.
 fn check_packet(at: &str, ours: &Packet, theirs: &Packet, duration: Option<u64>) {
     assert_eq!(ours.track_id, theirs.track_id, "{at}: track");
     assert_eq!(ours.index, theirs.index, "{at}: index");
@@ -40,7 +41,6 @@ fn check_packet(at: &str, ours: &Packet, theirs: &Packet, duration: Option<u64>)
         ours.discard_padding, theirs.discard_padding,
         "{at}: DiscardPadding"
     );
-    assert_eq!(ours.size, theirs.size, "{at}: size");
     assert_eq!(ours.lace, None, "{at}: the copy writes no lacing");
 }
 
@@ -66,7 +66,21 @@ fn check_packets(name: &str, input: &mut MkvDemuxer, output: &mut MkvDemuxer, tr
         let our_bytes = ok(name, output.read_packet(our));
         let their_bytes = ok(name, input.read_packet(their));
         assert_eq!(our_bytes, their_bytes, "{at}: bytes");
+        // The copy stores the decoded frame of a track with ContentEncodings.
+        assert_eq!(our.size as usize, their_bytes.len(), "{at}: size");
     }
+}
+
+/// The track facts a copy of `tracks` reads back with: a track whose
+/// `ContentEncodings` the demuxer undoes is written with none.
+fn as_copied(tracks: &[Track]) -> Vec<Track> {
+    let mut out = tracks.to_vec();
+    for mkv in out.iter_mut().filter_map(|track| track.matroska.as_mut()) {
+        if mkv.content_decoded {
+            mkv.content_encodings.clear();
+        }
+    }
+    out
 }
 
 /// Copy `bytes`, read the copy back, and compare it with the source.
@@ -86,7 +100,11 @@ fn check_bytes(name: &str, bytes: &[u8]) {
         "{name}: TimestampScale"
     );
     assert_eq!(output.info().title, input.info().title, "{name}: Title");
-    assert_eq!(output.tracks(), input.tracks(), "{name}: track facts");
+    assert_eq!(
+        output.tracks(),
+        as_copied(input.tracks()),
+        "{name}: track facts"
+    );
     assert_eq!(output.metadata(), input.metadata(), "{name}: tags");
     assert_eq!(output.chapters(), input.chapters(), "{name}: chapters");
     let tracks: Vec<u32> = input.tracks().iter().map(|track| track.id).collect();
@@ -185,4 +203,14 @@ fn round_trip_opus_trim() {
 #[test]
 fn round_trip_live_webm() {
     check("live.webm");
+}
+
+#[test]
+fn round_trip_mkvmerge_header_removal() {
+    check("mkvmerge_header_removal.mkv");
+}
+
+#[test]
+fn round_trip_mkvmerge_zlib() {
+    check("mkvmerge_zlib.mkv");
 }

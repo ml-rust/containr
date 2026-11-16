@@ -1,7 +1,8 @@
 //! Stream copy: a track spec and packet timing from a demuxed track.
 //!
-//! A Matroska track copies as it is: every `MatroskaTrack` fact, `pts`,
-//! duration, flags and `DiscardPadding`. The muxer needs a duration on the last
+//! A Matroska track copies as it is: every `MatroskaTrack` fact but the
+//! `ContentEncodings` the demuxer undoes, `pts`, duration, flags and
+//! `DiscardPadding`. The muxer needs a duration on the last
 //! block, so a last audio or video packet that stores none takes one, as
 //! [`StreamCopy::plan`] states. An MP4 track maps to its Matroska
 //! form, and every timestamp and duration must be a whole number of
@@ -35,18 +36,27 @@ impl TrackSpec {
     /// A spec from a demuxed Matroska or MP4 track.
     ///
     /// A Matroska track keeps its raw `CodecID`, `CodecPrivate`, UID, tags and
-    /// every other `MatroskaTrack` fact. An MP4 track maps by sample entry,
+    /// every other `MatroskaTrack` fact. A track whose
+    /// [`content_decoded`](crate::matroska::MatroskaTrack::content_decoded) is
+    /// true loses its `content_encodings`, since the demuxer returns its
+    /// packets and `CodecPrivate` plain. An MP4 track maps by sample entry,
     /// and an entry with no Matroska form gives
     /// [`crate::Error::Unsupported`], which names MP4. Use [`StreamCopy::plan`] for
     /// packet timing and for the facts an MP4 track's packets and edit list
     /// set: `DefaultDuration` and `CodecDelay`.
     pub fn copy_from(track: &Track) -> Result<Self> {
         match &track.matroska {
-            Some(mkv) => Ok(Self {
-                timebase: track.timebase,
-                matroska: mkv.clone(),
-                metadata: track.metadata.clone(),
-            }),
+            Some(mkv) => {
+                let mut matroska = mkv.clone();
+                if matroska.content_decoded {
+                    matroska.content_encodings.clear();
+                }
+                Ok(Self {
+                    timebase: track.timebase,
+                    matroska,
+                    metadata: track.metadata.clone(),
+                })
+            }
             None => spec_from_mp4(track),
         }
     }

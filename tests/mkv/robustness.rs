@@ -137,6 +137,28 @@ fn colour_file_survives_truncation_and_corruption() {
 }
 
 #[test]
+fn encoded_file_survives_truncation_and_corruption() {
+    // Header stripping under zlib on frames, and zlib on `CodecPrivate`.
+    let encodings = [
+        mkv_synth::EncodingIn::strip(0, 1, &[0xFC]),
+        mkv_synth::EncodingIn::zlib(1, 3),
+    ];
+    let blocks = [
+        vec![vec![0xFC, 1, 2, 3]],
+        vec![vec![0xFC, 4], vec![0xFC, 5, 6]],
+    ];
+    let file = mkv_synth::encoded_file(&encodings, &blocks);
+    for cut in 0..file.bytes.len() {
+        check(
+            "encoded",
+            &format!("a cut at {cut}"),
+            file.bytes[..cut].to_vec(),
+        );
+    }
+    corruptions("encoded", &file.bytes, 0..file.bytes.len());
+}
+
+#[test]
 fn malformed_colour_elements_give_a_named_error() {
     let cases: [(&str, &[u8]); 4] = [
         (

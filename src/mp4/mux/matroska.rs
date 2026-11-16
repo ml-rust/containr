@@ -3,7 +3,8 @@
 //! H.264, HEVC and AV1 keep `CodecPrivate` as the `avcC`, `hvcC` or `av1C`
 //! body. AAC wraps it in `esds`. Opus converts `OpusHead` to `dOps`.
 //! `S_TEXT/UTF8` cues become `tx3g` samples. Every other codec is refused
-//! and the error names Matroska.
+//! and the error names Matroska. A track with `ContentEncodings` the
+//! demuxer leaves on its frames is refused too.
 //!
 //! `Video/Colour` maps to an `nclx` `colr` box in the sample entry.
 //!
@@ -17,7 +18,7 @@
 //! timestamp then scales up by a whole factor, so none rounds.
 
 use crate::error::{Container, Error, Result};
-use crate::matroska::{DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo};
+use crate::matroska::{ContentEncoding, DisplayUnit, MatroskaAudio, MatroskaTrack, MatroskaVideo};
 use crate::mp4::mux::bytes::invalid;
 use crate::mp4::mux::codec_config::{aac_esds, opus_dops, rotation_matrix};
 use crate::mp4::mux::spec::{AudioCodec, PacketFormat, SampleEntrySpec, TrackSpec, VisualCodec};
@@ -106,9 +107,14 @@ fn delay_timescale(track: &Track, mkv: &MatroskaTrack, sample_rate: u32, base: u
 
 /// The spec for a Matroska track, or the refusal that names Matroska.
 pub(crate) fn spec_from_matroska(track: &Track, mkv: &MatroskaTrack) -> Result<TrackSpec> {
-    if !mkv.content_encodings.is_empty() {
+    if !mkv.content_decoded {
+        let label = mkv
+            .content_encodings
+            .iter()
+            .find(|encoding| !encoding.undone_on_read())
+            .map_or_else(|| "an encoding".to_owned(), ContentEncoding::label);
         return Err(refuse(format!(
-            "track {} with `ContentEncodings` (compressed or encrypted frames)",
+            "track {} with `ContentEncodings` the demuxer leaves on its frames ({label})",
             track.id
         )));
     }

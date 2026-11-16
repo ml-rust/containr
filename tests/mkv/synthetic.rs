@@ -33,7 +33,8 @@ fn synthetic_packets_cover_every_lacing_kind_in_both_segment_sizes() {
             let bytes = demuxer
                 .read_packet(packet)
                 .expect("the packet is in the input");
-            assert_eq!(bytes, mkv_synth::packet_bytes(packet), "{packet:?}");
+            // Audio frames, laced and not, get their stripped header back.
+            assert_eq!(bytes, mkv_synth::read_bytes(packet), "{packet:?}");
         }
         for id in [VIDEO, AUDIO] {
             let ours: Vec<_> = demuxer
@@ -127,6 +128,7 @@ fn synthetic_tracks_carry_their_matroska_facts() {
     );
     assert_eq!(mkv.default_duration, Some(40_000_000));
     assert!(!mkv.lacing);
+    assert!(mkv.content_decoded, "no ContentEncodings");
     let geometry = mkv.video.as_ref().expect("Video element");
     assert_eq!((geometry.pixel_width, geometry.pixel_height), (96, 64));
     assert_eq!(
@@ -153,7 +155,16 @@ fn synthetic_tracks_carry_their_matroska_facts() {
     assert_eq!((sound.channels, sound.bit_depth), (2, Some(16)));
     let encoding = mkv.content_encodings.first().expect("one ContentEncoding");
     assert_eq!(encoding.compression_algorithm, Some(3), "header stripping");
-    assert_eq!(encoding.compression_settings.as_deref(), Some(&[0xAB][..]));
+    assert_eq!(
+        encoding.compression_settings.as_deref(),
+        Some(&[mkv_synth::AUDIO_PREFIX][..])
+    );
+    assert!(mkv.content_decoded, "the demuxer undoes header stripping");
+    assert_eq!(
+        mkv.codec_private.as_deref(),
+        Some(&b"OpusHead"[..]),
+        "scope 1 leaves CodecPrivate as stored"
+    );
 }
 
 #[test]

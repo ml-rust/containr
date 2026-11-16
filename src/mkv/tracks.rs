@@ -4,6 +4,7 @@ use crate::edit::EditList;
 use crate::error::{Error, Result};
 use crate::matroska::{ContentEncoding, MatroskaTrack, RawElement};
 use crate::mkv::ebml::{Element, child_path, indexed_path};
+use crate::mkv::encoding::decode_track;
 use crate::mkv::ids;
 use crate::mkv::track_media::{parse_audio, parse_video};
 use crate::track::{Language, Timebase, Track, TrackKind};
@@ -55,12 +56,14 @@ fn parse_entry(entry: &Element<'_>, path: &str, timebase: Timebase) -> Result<Tr
         forced: false,
         lacing: true,
         content_encodings: Vec::new(),
+        content_decoded: true,
         video: None,
         audio: None,
         extra: Vec::new(),
     };
     let mut codec_id: Option<String> = None;
     let mut track_type: Option<u64> = None;
+    let mut private_offset = entry.offset;
     for child in entry.children(path) {
         let child = child?;
         let at = child_path(path, child.id);
@@ -77,7 +80,10 @@ fn parse_entry(entry: &Element<'_>, path: &str, timebase: Timebase) -> Result<Tr
             ids::LANGUAGE => mkv.language = child.string(&at)?,
             ids::LANGUAGE_BCP47 => mkv.language_bcp47 = Some(child.string(&at)?),
             ids::CODEC_ID => codec_id = Some(child.string(&at)?),
-            ids::CODEC_PRIVATE => mkv.codec_private = Some(child.binary()),
+            ids::CODEC_PRIVATE => {
+                mkv.codec_private = Some(child.binary());
+                private_offset = child.offset;
+            }
             ids::CODEC_NAME => mkv.codec_name = Some(child.string(&at)?),
             ids::CODEC_DELAY => mkv.codec_delay = child.uint(&at)?,
             ids::SEEK_PRE_ROLL => mkv.seek_pre_roll = child.uint(&at)?,
@@ -103,6 +109,12 @@ fn parse_entry(entry: &Element<'_>, path: &str, timebase: Timebase) -> Result<Tr
         })?;
     mkv.track_type = track_type.ok_or_else(|| Error::mkv_missing(format!("{path}/TrackType")))?;
     mkv.codec_id = codec_id.ok_or_else(|| Error::mkv_missing(format!("{path}/CodecID")))?;
+    decode_track(
+        &mut mkv,
+        id,
+        child_path(path, ids::CODEC_PRIVATE),
+        private_offset,
+    )?;
     Ok(Track {
         id,
         kind: TrackKind::from_matroska_type(mkv.track_type),

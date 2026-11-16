@@ -12,6 +12,8 @@ pub const AUDIO_UID: u64 = 0x2222;
 pub const ATTACHMENT_UID: u64 = 0x77;
 pub const CODEC_PRIVATE: [u8; 4] = [1, 0x42, 0xC0, 0x1E];
 pub const ATTACHMENT: &[u8] = b"not a real font, 32 bytes long..";
+/// The header-stripping prefix of the audio track's frames.
+pub const AUDIO_PREFIX: u8 = 0xAB;
 
 /// The built file, its packets in file order, and byte offsets the error
 /// tests patch.
@@ -65,7 +67,10 @@ fn tracks(colour: Option<&[u8]>) -> Vec<u8> {
             uint(0x6264, 16),
         ]),
     );
-    let compression = el(0x5034, &cat(&[uint(0x4254, 3), el(0x4255, &[0xAB])]));
+    let compression = el(
+        0x5034,
+        &cat(&[uint(0x4254, 3), el(0x4255, &[AUDIO_PREFIX])]),
+    );
     let encodings = el(
         0x6D80,
         &el(
@@ -368,4 +373,15 @@ pub fn file_with_colour(unknown_segment: bool, colour: Option<&[u8]>) -> Synth {
 /// The bytes the synthetic file stores for `packet`.
 pub fn packet_bytes(packet: &Packet) -> Vec<u8> {
     frame_bytes(packet.track_id, packet.index, packet.size)
+}
+
+/// The bytes the demuxer reads for `packet`: an audio frame gets its
+/// header-stripping prefix back.
+pub fn read_bytes(packet: &Packet) -> Vec<u8> {
+    let stored = packet_bytes(packet);
+    if packet.track_id == AUDIO {
+        [vec![AUDIO_PREFIX], stored].concat()
+    } else {
+        stored
+    }
 }

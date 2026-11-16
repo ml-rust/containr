@@ -61,6 +61,7 @@ impl TrackSpec {
                 forced: false,
                 lacing: false,
                 content_encodings: Vec::new(),
+                content_decoded: true,
                 video: None,
                 audio: None,
                 extra: Vec::new(),

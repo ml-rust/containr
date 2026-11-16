@@ -12,6 +12,12 @@
 //!
 //! A single-valued element that repeats keeps its last value.
 //!
+//! The demuxer undoes header stripping and zlib `ContentEncodings` on read,
+//! so packets and `CodecPrivate` come out plain. A track with encryption,
+//! bzlib, lzo1x or scope 4 keeps its stored bytes, and
+//! [`MatroskaTrack::content_decoded`](crate::matroska::MatroskaTrack::content_decoded)
+//! is false. [`Packet::size`](crate::Packet::size) is the stored size.
+//!
 //! The muxer stores no timestamp it cannot state exactly. A value converts to
 //! `TimestampScale` ticks when it is a whole number of nanoseconds and a whole
 //! multiple of the scale. [`StreamCopy::timestamp_scale`] picks a scale that
@@ -28,6 +34,7 @@ mod colour;
 mod demuxer;
 mod ebml;
 mod ebml_write;
+mod encoding;
 mod frames;
 mod ids;
 mod index;
@@ -45,6 +52,7 @@ pub use attachments::{Attachment, MAX_ATTACHMENT_FIELD};
 pub use chapters::MAX_NESTING;
 pub use cluster::{MAX_FRAMES, MAX_LACED_BLOCK_SIZE};
 pub use demuxer::Demuxer;
+pub use encoding::MAX_DECODED_SIZE;
 pub use index::{CuePoint, CuePosition, SeekEntry};
 pub use info::{DEFAULT_TIMESTAMP_SCALE, EbmlHeader, SegmentInfo};
 pub use mux::{

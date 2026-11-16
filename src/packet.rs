@@ -39,7 +39,9 @@ pub struct Packet {
     pub lace: Option<Lace>,
     /// The byte offset of the frame in the input.
     pub offset: u64,
-    /// The frame size in bytes.
+    /// The frame size in bytes, as the input stores it. A Matroska track
+    /// with header stripping or zlib `ContentEncodings` reads back a decoded
+    /// frame of another length.
     pub size: u32,
     /// The sample description the packet uses, counted from 1. Always 1 for
     /// Matroska.

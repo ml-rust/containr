@@ -6,6 +6,8 @@
 mod bare;
 mod blocks;
 mod elements;
+#[cfg(feature = "mkv")]
+mod encoded;
 mod file;
 
 // Only the mux test binaries use these.
@@ -15,6 +17,10 @@ pub use bare::{BARE_TRACK, BareKind, bare_file};
 // compiles this module too, so the re-exports are unused there.
 #[allow(unused_imports)]
 pub use file::{
-    ATTACHMENT, ATTACHMENT_UID, AUDIO, AUDIO_UID, CODEC_PRIVATE, Synth, VIDEO, VIDEO_UID, file,
-    file_with_colour, packet_bytes,
+    ATTACHMENT, ATTACHMENT_UID, AUDIO, AUDIO_PREFIX, AUDIO_UID, CODEC_PRIVATE, Synth, VIDEO,
+    VIDEO_UID, file, file_with_colour, packet_bytes, read_bytes,
 };
+// The decode tests use these. They need the `mkv` feature for zlib.
+#[cfg(feature = "mkv")]
+#[allow(unused_imports)]
+pub use encoded::{ENCODED_TRACK, EncodedFile, EncodingIn, encoded_file, stored_file, zlib_bomb};

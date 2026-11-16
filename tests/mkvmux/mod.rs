@@ -1,4 +1,5 @@
 mod colour;
+mod encodings;
 mod ffprobe;
 mod last_duration;
 mod layout;

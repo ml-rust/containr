@@ -202,6 +202,7 @@ mod tests {
             id: 0x55EE,
             body: vec![0],
         }];
+        mkv.content_decoded = false;
         mkv.content_encodings = vec![ContentEncoding {
             order: 1,
             scope: 2,

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 use crate::metadata::{Chapter, MetadataItem, MetadataScope, TagScope, TagTarget};
 use crate::mkv::attachments::Attachment;
+use crate::mkv::encoding::{Plan, frame_plans};
 use crate::mkv::frames::build_packets;
 use crate::mkv::index::{CuePoint, SeekEntry};
 use crate::mkv::info::{EbmlHeader, SegmentInfo};
@@ -24,7 +25,8 @@ use crate::track::Track;
 /// [`Demuxer::open`] reads the EBML header and every Segment child, and
 /// indexes every frame of every Cluster. Packet and attachment bytes stay
 /// in the input until [`Demuxer::read_packet`] or
-/// [`Demuxer::read_attachment`] reads them.
+/// [`Demuxer::read_attachment`] reads them. A packet read undoes the
+/// track's header stripping and zlib `ContentEncodings`.
 #[derive(Debug)]
 pub struct Demuxer<R> {
     reader: R,
@@ -33,6 +35,8 @@ pub struct Demuxer<R> {
     info: SegmentInfo,
     segment_data: u64,
     tracks: Vec<Track>,
+    /// The frame decode plan of each track whose frames carry encodings.
+    decoders: Vec<(u32, Plan)>,
     packets: Arc<[Packet]>,
     metadata: Vec<MetadataItem>,
     chapters: Vec<Chapter>,
@@ -65,6 +69,7 @@ impl<R: Read + Seek> Demuxer<R> {
         let mut tracks = tracks_of(&found)?;
         let packets = build_packets(&found.frames, &mut tracks, found.info.timestamp_scale)?;
         let metadata = place_tags(found.tags, &mut tracks);
+        let decoders = frame_plans(&tracks);
         Ok(Self {
             reader,
             input_len,
@@ -72,6 +77,7 @@ impl<R: Read + Seek> Demuxer<R> {
             info: found.info,
             segment_data: found.segment_data,
             tracks,
+            decoders,
             packets: packets.into(),
             metadata,
             chapters: found.chapters,
@@ -83,8 +89,17 @@ impl<R: Read + Seek> Demuxer<R> {
     }
 
     /// Read the bytes of `packet` into `buf`, which it replaces.
+    ///
+    /// For a track with header stripping or zlib `ContentEncodings`, `buf`
+    /// holds the decoded frame, whose length differs from `packet.size`. A
+    /// track whose [`content_decoded`](crate::matroska::MatroskaTrack::content_decoded)
+    /// is false gives the stored bytes.
     pub fn read_packet_into(&mut self, packet: &Packet, buf: &mut Vec<u8>) -> Result<()> {
-        read_range(&mut self.reader, self.input_len, packet, buf)
+        read_range(&mut self.reader, self.input_len, packet, buf)?;
+        match self.decoders.iter().find(|(id, _)| *id == packet.track_id) {
+            Some((_, plan)) => plan.decode_frame(packet, buf),
+            None => Ok(()),
+        }
     }
 
     /// Read the bytes of `packet`.

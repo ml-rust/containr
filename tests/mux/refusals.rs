@@ -60,6 +60,7 @@ fn mkv_track(codec_id: &str, kind: TrackKind) -> Track {
         forced: false,
         lacing: false,
         content_encodings: Vec::new(),
+        content_decoded: true,
         video: None,
         audio: None,
         extra: Vec::new(),
@@ -148,17 +149,21 @@ fn matroska_crop_and_content_encodings_name_matroska() {
     });
     assert_names_matroska(&refusal(&track), "PixelCrop");
     let mkv = track.matroska.as_mut().expect("a Matroska track");
+    // The demuxer leaves encrypted frames as stored.
+    mkv.content_decoded = false;
     mkv.content_encodings
         .push(containr::matroska::ContentEncoding {
             order: 0,
             scope: 1,
-            encoding_type: 0,
-            compression_algorithm: Some(3),
+            encoding_type: 1,
+            compression_algorithm: None,
             compression_settings: None,
-            encryption_algorithm: None,
+            encryption_algorithm: Some(5),
             encryption_settings: None,
         });
-    assert_names_matroska(&refusal(&track), "ContentEncodings");
+    let err = refusal(&track);
+    assert_names_matroska(&err, "ContentEncodings");
+    assert_names_matroska(&err, "encryption with `ContentEncAlgo` 5");
 }
 
 #[test]

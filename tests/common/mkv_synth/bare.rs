@@ -14,14 +14,20 @@ pub enum BareKind {
     Text,
 }
 
+/// An `OpusHead` of 2 channels at 48 kHz with a 312-sample pre-skip.
+pub(super) fn opus_head() -> Vec<u8> {
+    let mut head = b"OpusHead".to_vec();
+    head.extend([1, 2]);
+    head.extend(312u16.to_le_bytes());
+    head.extend(48_000u32.to_le_bytes());
+    head.extend([0, 0, 0]);
+    head
+}
+
 fn track_entry(kind: BareKind) -> Vec<u8> {
     let (track_type, codec, body) = match kind {
         BareKind::Opus => {
-            let mut head = b"OpusHead".to_vec();
-            head.extend([1, 2]);
-            head.extend(312u16.to_le_bytes());
-            head.extend(48_000u32.to_le_bytes());
-            head.extend([0, 0, 0]);
+            let head = opus_head();
             let audio = el(
                 0xE1,
                 &cat(&[

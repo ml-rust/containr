@@ -16,12 +16,14 @@ default = []
 # MP4 and QuickTime MOV demux and mux.
 mp4 = ["dep:mp4-atom"]
 # Matroska and WebM demux and mux. The EBML reader and writer are containr's own.
-mkv = []
+mkv = ["dep:miniz_oxide"]
 
 [dependencies]
 # Pinned: the demuxer decodes boxes through this crate's public types, and a
 # minor release can change them.
 mp4-atom = { version = "=0.17.0", optional = true }
+# Inflates zlib `ContentEncoding` frames and `CodecPrivate` on Matroska read.
+miniz_oxide = { version = "0.9", optional = true }
 
 [dev-dependencies]
 serde_json = "1"

@@ -21,7 +21,7 @@ pub(super) enum Laced {
 }
 
 /// Lace header bytes for `sizes`.
-fn lace_header(kind: Laced, sizes: &[u32]) -> Vec<u8> {
+pub(super) fn lace_header(kind: Laced, sizes: &[u32]) -> Vec<u8> {
     let mut out = vec![(sizes.len() - 1) as u8];
     let head = &sizes[..sizes.len() - 1];
     match kind {

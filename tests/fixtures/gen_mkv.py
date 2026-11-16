@@ -16,6 +16,13 @@ Writes into tests/fixtures/mkv/, which git ignores:
 The reference JSON holds `streams`, `packets`, `chapters` and `format`:
 ffprobe output with the Adler-32 of each packet's bytes.
 
+The mkvmerge fixtures (mkvmerge_*) need `mkvmerge` from MKVToolNix on PATH.
+Without it, the script skips them with a notice. Two remux h264_ac3.mkv:
+mkvmerge_plain.mkv with no compression and mkvmerge_zlib.mkv with every track
+zlib-compressed. Two remux an MPEG-4 Part 2 source, mpeg4.mkv:
+mkvmerge_mpeg4_plain.mkv with no compression and mkvmerge_header_removal.mkv
+with the start code stripped from every frame, as `restore_stripped_frames` fixes.
+
 The colour fixtures (colour_*) carry `-color_primaries`, `-color_trc`,
 `-colorspace` and `-color_range` tags. The reference streams hold ffprobe's
 `color_primaries`, `color_transfer`, `color_space` and `color_range`.
@@ -36,6 +43,7 @@ H264 = ["-c:v", "libx264", "-preset", "veryfast", "-bf", "2", "-g", "12", "-pix_
 HEVC = ["-c:v", "libx265", "-x265-params", "log-level=error:bframes=2"]
 VP9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k"]
 AAC = ["-c:a", "aac", "-ac", "2", "-b:a", "64k"]
+AC3 = ["-c:a", "ac3", "-ac", "2", "-b:a", "96k"]
 OPUS = ["-c:a", "libopus", "-b:a", "48k"]
 DURATION = ["-t", "2"]
 
@@ -217,6 +225,95 @@ def make_attachment(meta):
     )
 
 
+def simple_blocks(data):
+    """The (offset, length) of each SimpleBlock payload, after its 4-byte header.
+
+    Walks the Segment and its Clusters, which hold every block of a mkvmerge file.
+    """
+    blocks = []
+
+    def walk(start, end):
+        pos = start
+        while pos < end:
+            id_len = vint_len(data[pos])
+            element = bytes(data[pos : pos + id_len])
+            size_at = pos + id_len
+            size_len = vint_len(data[size_at])
+            size = int.from_bytes(data[size_at : size_at + size_len], "big") & ((1 << (7 * size_len)) - 1)
+            body = size_at + size_len
+            if element in (bytes.fromhex("18538067"), bytes.fromhex("1f43b675")):
+                walk(body, min(end, body + size))
+            elif element == b"\xa3":
+                track_len = vint_len(data[body])
+                blocks.append((body + track_len + 3, size - track_len - 3))
+            pos = body + size
+
+    walk(0, len(data))
+    return blocks
+
+
+def restore_stripped_frames(plain, path):
+    """Write each frame of `plain` minus its 00 00 01 start code into `path`.
+
+    mkvmerge v74 declares the `mpeg4_p2` header removal and drops 3 bytes from
+    each frame, but fills the stored frame with other bytes, which differ on
+    every run. The block sizes are right, so the stored bytes are overwritten in
+    place. The result is what a correct writer stores: the plain frame minus
+    the start code that `ContentCompSettings` holds.
+    """
+    source = plain.read_bytes()
+    data = bytearray(path.read_bytes())
+    ours, theirs = simple_blocks(data), simple_blocks(source)
+    if len(ours) != len(theirs) or not ours:
+        sys.exit(f"{path} has {len(ours)} blocks, {plain} has {len(theirs)}")
+    for (at, size), (src_at, src_size) in zip(ours, theirs):
+        if src_size != size + 3 or source[src_at : src_at + 3] != b"\x00\x00\x01":
+            sys.exit(f"{path}: a block is not its plain frame minus 00 00 01")
+        data[at : at + size] = source[src_at + 3 : src_at + src_size]
+    path.write_bytes(data)
+
+
+MPEG4 = ["-c:v", "mpeg4", "-bf", "0"]
+MPEG4_SRC = ["-f", "lavfi", "-i", "testsrc=size=64x48:rate=25"]
+
+# Each mkvmerge fixture: its name, its source and the `--compression` value of
+# each mkvmerge track ID. Header removal is the `mpeg4_p2` method, which strips
+# the 00 00 01 start code from every MPEG-4 Part 2 frame.
+MKVMERGE = [
+    ("mkvmerge_plain.mkv", "h264_ac3.mkv", {0: "none", 1: "none"}),
+    ("mkvmerge_zlib.mkv", "h264_ac3.mkv", {0: "zlib", 1: "zlib"}),
+    ("mkvmerge_mpeg4_plain.mkv", "mpeg4.mkv", {0: "none"}),
+    ("mkvmerge_header_removal.mkv", "mpeg4.mkv", {0: "mpeg4_p2"}),
+]
+
+
+def make_mkvmerge():
+    """Remuxes by mkvmerge, which writes `ContentEncodings`. FFmpeg never does."""
+    if shutil.which("mkvmerge") is None:
+        print("skipping mkvmerge_*.mkv: mkvmerge is not on PATH. Install MKVToolNix, then run this script again")
+        return
+    sources = {
+        "h264_ac3.mkv": make("h264_ac3.mkv", VIDEO_SRC + AUDIO_SRC + DURATION + H264 + AC3),
+        "mpeg4.mkv": make("mpeg4.mkv", MPEG4_SRC + DURATION + MPEG4 + ["-f", "matroska"]),
+    }
+    for name, source, compression in MKVMERGE:
+        path = OUT / name
+        args = ["mkvmerge", "--quiet", "-o", str(path)]
+        for track, value in compression.items():
+            args += ["--compression", f"{track}:{value}"]
+        args.append(str(sources[source]))
+        result = subprocess.run(args, capture_output=True, text=True)
+        # mkvmerge exits 1 after warnings and 2 after errors.
+        if result.returncode not in (0, 1):
+            path.unlink(missing_ok=True)
+            print(f"skipping {name}: mkvmerge failed ({result.returncode}): {result.stdout}{result.stderr}")
+            continue
+        if name == "mkvmerge_header_removal.mkv":
+            restore_stripped_frames(OUT / "mkvmerge_mpeg4_plain.mkv", path)
+        probe(path)
+        print(f"wrote {path}")
+
+
 def make_colour():
     """Fixtures whose colour tags sit in the container: `Video/Colour`."""
     OUT.mkdir(parents=True, exist_ok=True)
@@ -264,6 +361,7 @@ def main():
     make("opus_trim.webm", AUDIO_SRC + ["-t", "1.013"] + OPUS)
     # A live WebM: a Segment and Clusters of unknown size.
     make_live()
+    make_mkvmerge()
 
 
 if __name__ == "__main__":

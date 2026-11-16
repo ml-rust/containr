@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- `mkv::Demuxer`: packets and `CodecPrivate` of header-stripped and zlib tracks come out decoded. Callers that undid these encodings must stop, and check `MatroskaTrack::content_decoded` instead.
+- `MatroskaTrack`: new field `content_decoded`. Code that builds a `MatroskaTrack` with a struct literal must set it.
+
 ## [0.1.1] - 2026-11-06
 
 ### Changed

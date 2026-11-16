@@ -329,7 +329,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### MKV/WebM demux
 
 - The EBML reader is containr's own. It checks every size before it allocates, and decodes unknown sizes of any length.
-- Each track carries its `TrackNumber` as id, kind, `TimestampScale` timebase, and language. `Track::matroska` holds `TrackUID`, `CodecID`, raw `CodecPrivate`, `Language` and `LanguageBCP47`, `DefaultDuration`, `CodecDelay`, `SeekPreRoll`, flags, and `ContentEncodings`.
+- Each track carries its `TrackNumber` as id, kind, `TimestampScale` timebase, and language. `Track::matroska` holds `TrackUID`, `CodecID`, `CodecPrivate`, `Language` and `LanguageBCP47`, `DefaultDuration`, `CodecDelay`, `SeekPreRoll`, flags, and `ContentEncodings`.
+- The demuxer undoes header stripping and zlib `ContentEncodings` on packets and `CodecPrivate`. A track with encryption, bzlib, lzo1x or scope 4 keeps its stored bytes, and `MatroskaTrack::content_decoded` is false. `Packet::size` stays the stored size.
 - Video tracks carry pixel and display size, `DisplayUnit`, crop, and `Projection` with `ProjectionPoseRoll`. Audio tracks carry sampling frequency, channels, and bit depth.
 - `MatroskaVideo::colour` holds `MatrixCoefficients`, `TransferCharacteristics`, `Primaries`, and `Range`. The raw `Colour` element also stays in `MatroskaVideo::extra`.
   - `Range` 1 gives limited, 2 gives full, and 0 or 3 give `None`.
