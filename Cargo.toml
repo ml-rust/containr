@@ -21,7 +21,7 @@ mkv = ["dep:miniz_oxide"]
 [dependencies]
 # Pinned: the demuxer decodes boxes through this crate's public types, and a
 # minor release can change them.
-mp4-atom = { version = "=0.17.0", optional = true }
+mp4-atom = { version = "=0.17.1", optional = true }
 # Inflates zlib `ContentEncoding` frames and `CodecPrivate` on Matroska read.
 miniz_oxide = { version = "0.9", optional = true }
 
